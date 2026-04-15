@@ -497,9 +497,16 @@ with tab_report:
                         "constraints": cons,
                         "plans": plan
                     }
-                    pdf_bytes = generate_official_report_pdf(report_data)
-                    st.success("Laporan Berhasil Dibuat!")
-                    st.download_button("📥 DOWNLOAD LAPORAN (PDF)", data=pdf_bytes, file_name=f"Laporan_BSI_{datetime.now().strftime('%b_%Y')}.pdf", mime="application/pdf", use_container_width=True)
+                    st.session_state.pdf_report_bytes = generate_official_report_pdf(report_data)
+                    st.session_state.pdf_report_name = f"Laporan_BSI_{datetime.now().strftime('%b_%Y')}.pdf"
+                    st.rerun()
+
+            if "pdf_report_bytes" in st.session_state:
+                st.success("Laporan PDF Siap Diunduh!")
+                st.download_button("📥 DOWNLOAD LAPORAN SEKARANG", data=st.session_state.pdf_report_bytes, file_name=st.session_state.pdf_report_name, mime="application/pdf", use_container_width=True, type="primary")
+                if st.button("Selesai & Bersihkan"):
+                    del st.session_state.pdf_report_bytes
+                    st.rerun()
 
         else:
             st.subheader("Penyusunan Proposal Penguatan")
@@ -516,9 +523,15 @@ with tab_report:
                         "programs": prog,
                         "budget": budg
                     }
-                    pdf_bytes = generate_funding_proposal_pdf(prop_data)
-                    st.success("Proposal Berhasil Dibuat!")
-                    st.download_button("📥 DOWNLOAD PROPOSAL (PDF)", data=pdf_bytes, file_name=f"Proposal_BSI_BinaMandiri.pdf", mime="application/pdf", use_container_width=True)
+                    st.session_state.pdf_proposal_bytes = generate_funding_proposal_pdf(prop_data)
+                    st.rerun()
+            
+            if "pdf_proposal_bytes" in st.session_state:
+                st.success("Proposal PDF Siap Diunduh!")
+                st.download_button("📥 DOWNLOAD PROPOSAL SEKARANG", data=st.session_state.pdf_proposal_bytes, file_name="Proposal_BSI_BinaMandiri.pdf", mime="application/pdf", use_container_width=True, type="primary")
+                if st.button("Selesai & Bersihkan"):
+                    del st.session_state.pdf_proposal_bytes
+                    st.rerun()
 
 with tab_ops:
     st.header("🏦 Pusat Operasional Hybrid")
