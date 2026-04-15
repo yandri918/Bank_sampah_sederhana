@@ -486,7 +486,6 @@ with tab_ops:
                         elif nom_p <= 0:
                             st.warning("Masukkan nominal.")
                         else:
-                            # Search for unit
                             n_full = get_nasabah_df()
                             unit_p = n_full[n_full["nama"] == selected_n_p]["unit"].values[0] if not n_full.empty else "-"
                             
@@ -500,13 +499,26 @@ with tab_ops:
                                 "keterangan": ket_p
                             }
                             if save_penarikan(wd_data):
-                                st.success("Penarikan Berhasil!")
-                                # Generate and show receipt
-                                receipt = generate_withdrawal_receipt(wd_data)
-                                st.image(receipt, caption="Kwitansi Digital")
-                                st.download_button("📥 Unduh Kwitansi", data=receipt, file_name=f"Struk_{selected_n_p.replace(' ', '_')}.png", mime="image/png")
+                                st.session_state.last_receipt = generate_withdrawal_receipt(wd_data)
+                                st.session_state.last_receipt_name = selected_n_p
                                 st.cache_data.clear()
-                                # No rerun here so user can see/download receipt
+                                st.rerun()
+
+                # Display receipt outside the form if it exists in session state
+                if "last_receipt" in st.session_state:
+                    st.divider()
+                    st.image(st.session_state.last_receipt, caption=f"Kwitansi Digital: {st.session_state.last_receipt_name}")
+                    st.download_button(
+                        "📥 Unduh Kwitansi", 
+                        data=st.session_state.last_receipt, 
+                        file_name=f"Struk_{st.session_state.last_receipt_name.replace(' ', '_')}.png", 
+                        mime="image/png",
+                        type="primary",
+                        use_container_width=True
+                    )
+                    if st.button("Tutup / Transaksi Baru"):
+                        del st.session_state.last_receipt
+                        st.rerun()
 
 with tab_riwayat:
     st.subheader("📜 Riwayat Transaksi Lengkap")
