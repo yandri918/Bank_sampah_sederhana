@@ -326,12 +326,13 @@ if not df_db.empty:
 else:
     df = pd.DataFrame()
     st.warning("👋 Selamat Datang! Data masih kosong.")
-    st.info("Silakan login di sidebar (atau gunakan akun admin) lalu klik tombol **🚀 MULAI SINKRONISASI** untuk menarik data dari Google Sheet.")
+    st.info("Silakan login di sidebar sebagai Admin, lalu buka tab **⚙️ Pengaturan** untuk melakukan **Sinkronisasi GSheet** pertama kali.")
+    st.stop()
 
 if df.empty:
     st.info("Tidak ada data untuk rentang waktu ini atau database masih kosong.")
     if not st.session_state.authenticated:
-        st.write("Silakan Login & Sinkronisasi di sidebar.")
+        st.write("Silakan Login & buka tab **⚙️ Pengaturan** untuk sinkronisasi.")
     st.stop()
 
 # --- Calculations & Metrics ---
