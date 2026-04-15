@@ -13,7 +13,7 @@ from modules.database import (
     save_transaction, save_penarikan, get_withdrawals_df, upsert_withdrawal_data,
     get_nasabah_summary
 )
-from modules.cards import generate_member_card
+from modules.cards import generate_member_card, generate_qr_code
 
 # Initialize Database
 init_db()
