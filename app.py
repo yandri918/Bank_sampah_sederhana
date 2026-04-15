@@ -251,8 +251,18 @@ with st.sidebar:
                     else:
                         st.warning("Mohon isi semua field.")
     else:
-        st.success(f"🏡 {st.session_state.user['full_name']}")
-        st.caption(f"Role: {st.session_state.user['role'].upper()}")
+        # Safe access for user data (handle legacy tuple vs new dict)
+        user_data = st.session_state.user
+        if isinstance(user_data, dict):
+            display_name = user_data.get('full_name', 'User')
+            display_role = user_data.get('role', 'staff').upper()
+        else:
+            # Handle legacy tuple if exists
+            display_name = user_data[3] if len(user_data) > 3 else "User"
+            display_role = "STAFF"
+            
+        st.success(f"🏡 {display_name}")
+        st.caption(f"Role: {display_role}")
         if st.button("🚪 Keluar", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.user = {"bsi_id": 1}
