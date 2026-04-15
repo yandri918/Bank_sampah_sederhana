@@ -43,6 +43,8 @@ EXPECTED_FIELDS_REGISTRATION: Dict[str, Iterable[str]] = {
     "unit": ("bank sampah unit", "unit"),
     "jenis_nasabah": ("jenis nasabah", "kategori nasabah"),
     "status_aturan": ("bersedia mengikuti aturan", "aturan"),
+}
+
 EXPECTED_FIELDS_WITHDRAWAL: Dict[str, Iterable[str]] = {
     "nama_nasabah": ("nama", "nasabah", "nama nasabah", "name"),
     "nominal": ("nominal", "jumlah", "penarikan", "amount", "debet"),
@@ -125,7 +127,13 @@ def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
                 .str.replace(",", ".", regex=False)
                 .str.replace(r"[^0-9.\-]", "", regex=True)
             )
-            df[num_field] = pd.to_numeric(parsed, errors="coerce").fillna(0.0)def _normalize_withdrawal_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
+            df[num_field] = pd.to_numeric(parsed, errors="coerce").fillna(0.0)
+        else:
+            df[num_field] = 0.0
+
+    return df
+
+def _normalize_withdrawal_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
     df = raw_df.copy()
     mapped_cols = {}
     for field_name, aliases in EXPECTED_FIELDS_WITHDRAWAL.items():
