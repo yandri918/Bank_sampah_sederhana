@@ -16,9 +16,11 @@ Starter project dashboard Bank Sampah berbasis Streamlit yang membaca response G
    - `python -m venv .venv`
    - `.venv\Scripts\activate`
 2. Install dependency:
-   - `pip install -r requirements.txt`
+   - `py -m pip install -r requirements.txt`
 3. Jalankan aplikasi:
-   - `streamlit run app.py`
+   - `py -m streamlit run app.py`
+
+Jika command `streamlit` tidak dikenali di Windows, tetap gunakan `py -m streamlit ...` seperti di atas.
 
 ## Hubungkan Google Form
 

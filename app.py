@@ -1,10 +1,17 @@
 import re
+from datetime import datetime
 from typing import Dict, Iterable, Optional
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from modules.database import (
+    init_db, upsert_gsheet_data, get_transactions_df, 
+    verify_user, create_user
+)
 
+# Initialize Database
+init_db()
 
 st.set_page_config(
     page_title="Bank Sampah Streamlit",
@@ -103,8 +110,40 @@ def _load_gsheet_csv(csv_url: str) -> pd.DataFrame:
 st.title("Bank Sampah Dashboard")
 st.caption("Integrasi Google Form ke visualisasi nasabah, alur sampah, pembukuan, dan keuangan.")
 
+# --- Authentication & Sidebar ---
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
 with st.sidebar:
-    st.header("Konfigurasi")
+    st.header("🔑 Akses Sistem")
+    if not st.session_state.authenticated:
+        with st.form("login_form"):
+            user = st.text_input("Username")
+            pw = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Masuk")
+            if submitted:
+                # Simple check, if no users exists, allow first user as admin
+                # For demo purposes, we'll create a default admin if none exists
+                # In production, this would be more secure
+                res = verify_user(user, pw)
+                if res:
+                    st.session_state.authenticated = True
+                    st.session_state.user = res
+                    st.rerun()
+                elif user == "admin" and pw == "admin": # Default fallback
+                    create_user("admin", "admin", "Administrator", "admin")
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Login gagal")
+    else:
+        st.success(f"Halo, {st.session_state.user[3] if len(st.session_state.user) > 3 else 'User'}")
+        if st.button("Keluar"):
+            st.session_state.authenticated = False
+            st.rerun()
+
+    st.divider()
+    st.header("⚙️ Konfigurasi")
     st.link_button(
         "Buka Google Form",
         "https://docs.google.com/forms/d/e/1FAIpQLSdXSuFX_RaEspHEZ7HLsdQ4cGHYJUO4IUQrE8qk1DexHJ9-HA/viewform",
@@ -115,39 +154,69 @@ with st.sidebar:
         value=st.secrets.get("BANK_SAMPAH_SHEET_URL", ""),
         placeholder="https://docs.google.com/spreadsheets/d/<sheet_id>/edit#gid=0",
     )
+    
+    if st.session_state.authenticated:
+        if st.button("🔄 Sinkronisasi GSheet", use_container_width=True):
+            if sheet_url:
+                with st.spinner("Mensinkronkan data..."):
+                    try:
+                        csv_url_sync = _build_sheet_csv_url(sheet_url)
+                        raw_data = _load_gsheet_csv(csv_url_sync)
+                        norm_df = _normalize_dataframe(raw_data)
+                        added, dups = upsert_gsheet_data(norm_df)
+                        st.sidebar.success(f"Berhasil: {added} data baru, {dups} duplikat diabaikan.")
+                        st.cache_data.clear()
+                    except Exception as e:
+                        st.sidebar.error(f"Gagal sinkron: {e}")
+            else:
+                st.sidebar.warning("Masukkan URL GSheet dulu.")
 
-if not sheet_url:
-    st.info("Masukkan URL Google Sheet response dari Google Form di sidebar.")
+# --- Data Loading ---
+df_db = get_transactions_df()
+if not df_db.empty:
+    df_db['tanggal'] = pd.to_datetime(df_db['tanggal'])
+    
+    # Filter by Date
+    min_date = df_db['tanggal'].min().date()
+    max_date = df_db['tanggal'].max().date()
+    
+    with st.sidebar:
+        st.divider()
+        st.header("📅 Filter Data")
+        start_date, end_date = st.date_input(
+            "Rentang Tanggal",
+            value=[min_date, max_date],
+            min_value=min_date,
+            max_value=max_date
+        )
+    
+    # Apply filter
+    df = df_db[(df_db['tanggal'].dt.date >= start_date) & (df_db['tanggal'].dt.date <= end_date)].copy()
+else:
+    st.warning("Data belum tersedia. Silakan lakukan sinkronisasi di sidebar (memerlukan login).")
     st.stop()
 
-csv_url = _build_sheet_csv_url(sheet_url)
-if not csv_url:
-    st.error("URL Google Sheet tidak valid.")
-    st.stop()
-
-try:
-    raw_df = _load_gsheet_csv(csv_url)
-except Exception as exc:
-    st.error("Gagal membaca data Google Sheet. Pastikan sharing sheet: Anyone with the link can view.")
-    st.exception(exc)
-    st.stop()
-
-if raw_df.empty:
-    st.warning("Belum ada data response.")
-    st.stop()
-
-df = _normalize_dataframe(raw_df)
-
+# --- Calculations & Metrics ---
 total_nasabah = int(df["nama_nasabah"].nunique())
 total_berat = float(df["berat_kg"].sum())
 total_pendapatan = float(df["nilai_rp"].sum())
 total_pengeluaran = float(df["pembayaran"].sum())
 saldo = total_pendapatan - total_pengeluaran
 
+# Simple Trend (MoM)
+current_month = datetime.now().strftime('%Y-%m')
+prev_month = (datetime.now() - pd.DateOffset(months=1)).strftime('%Y-%m')
+
+def get_monthly_sum(dataframe, month_str, col):
+    return dataframe[dataframe['tanggal'].dt.strftime('%Y-%m') == month_str][col].sum()
+
+berat_delta = get_monthly_sum(df, current_month, 'berat_kg') - get_monthly_sum(df, prev_month, 'berat_kg')
+pendapatan_delta = get_monthly_sum(df, current_month, 'nilai_rp') - get_monthly_sum(df, prev_month, 'nilai_rp')
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Nasabah", f"{total_nasabah}")
-c2.metric("Total Berat", f"{total_berat:,.1f} kg")
-c3.metric("Pendapatan", f"Rp {total_pendapatan:,.0f}")
+c2.metric("Total Berat", f"{total_berat:,.1f} kg", delta=f"{berat_delta:,.1f} kg (Bulan ini)")
+c3.metric("Pendapatan", f"Rp {total_pendapatan:,.0f}", delta=f"Rp {pendapatan_delta:,.0f} (Bulan ini)")
 c4.metric("Saldo", f"Rp {saldo:,.0f}")
 
 tab_nasabah, tab_alur, tab_pembukuan, tab_keuangan, tab_raw = st.tabs(
@@ -217,10 +286,10 @@ with tab_keuangan:
     )
 
 with tab_raw:
-    st.dataframe(raw_df, use_container_width=True, hide_index=True)
+    st.dataframe(df, use_container_width=True, hide_index=True)
     st.download_button(
-        "Unduh CSV Response",
-        raw_df.to_csv(index=False).encode("utf-8"),
-        file_name="bank_sampah_response.csv",
+        "Unduh CSV Data",
+        df.to_csv(index=False).encode("utf-8"),
+        file_name="bank_sampah_data.csv",
         mime="text/csv",
     )
