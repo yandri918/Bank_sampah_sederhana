@@ -47,11 +47,21 @@ def _find_col(columns: Iterable[str], aliases: Iterable[str]) -> Optional[str]:
 
 
 def _build_sheet_csv_url(sheet_url: str) -> str:
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
-    if not match:
+    # Extract Spreadsheet ID
+    id_match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
+    if not id_match:
         return ""
-    spreadsheet_id = match.group(1)
-    return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv"
+    spreadsheet_id = id_match.group(1)
+    
+    # Extract optional Resource Key
+    rk_match = re.search(r"resourcekey=([a-zA-Z0-9-_]+)", sheet_url)
+    resource_key = rk_match.group(1) if rk_match else ""
+    
+    # Build export URL
+    base_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv"
+    if resource_key:
+        base_url += f"&resourcekey={resource_key}"
+    return base_url
 
 
 def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
@@ -199,7 +209,10 @@ with st.sidebar:
                             st.cache_data.clear()
                             st.rerun()
                     except Exception as e:
-                        st.sidebar.error(f"Gagal sinkron: {e}")
+                        if "401" in str(e) or "Unauthorized" in str(e):
+                            st.sidebar.error("🚫 Akses Ditolak (401). Mohon buka Google Sheet Anda, klik tombol 'Share', dan ubah akses menjadi 'Anyone with the link can view'.")
+                        else:
+                            st.sidebar.error(f"Gagal sinkron: {e}")
             else:
                 st.sidebar.warning("Masukkan URL GSheet dulu.")
 

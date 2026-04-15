@@ -33,7 +33,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS transaksi (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tanggal TIMESTAMP,
-            nasabah_name TEXT,
+            nama_nasabah TEXT,
             rt_rw TEXT,
             jenis_sampah TEXT,
             berat_kg REAL,
@@ -59,7 +59,7 @@ def save_transaction(data: dict):
     try:
         cursor.execute("""
             INSERT INTO transaksi (
-                tanggal, nasabah_name, rt_rw, jenis_sampah, berat_kg, 
+                tanggal, nama_nasabah, rt_rw, jenis_sampah, berat_kg, 
                 harga_per_kg, nilai_rp, pembayaran, status_alur, source, gsheet_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -90,7 +90,7 @@ def upsert_gsheet_data(df: pd.DataFrame):
         try:
             conn.execute("""
                 INSERT INTO transaksi (
-                    tanggal, nasabah_name, rt_rw, jenis_sampah, berat_kg, 
+                    tanggal, nama_nasabah, rt_rw, jenis_sampah, berat_kg, 
                     harga_per_kg, nilai_rp, pembayaran, status_alur, source, gsheet_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -153,7 +153,11 @@ def update_setting(key, value):
 
 def get_transactions_df():
     conn = get_connection()
+    # Ensure column is named nama_nasabah for streamlit dashboard compatibility
     df = pd.read_sql_query("SELECT * FROM transaksi ORDER BY tanggal DESC", conn)
+    # If the database existed before the schema update, manually rename for df if needed
+    if 'nasabah_name' in df.columns:
+        df = df.rename(columns={'nasabah_name': 'nama_nasabah'})
     conn.close()
     return df
 
@@ -161,12 +165,12 @@ def get_nasabah_summary():
     conn = get_connection()
     query = """
         SELECT 
-            nasabah_name as nama_nasabah, 
+            nama_nasabah, 
             COUNT(*) as total_transaksi,
             SUM(berat_kg) as total_berat_kg,
             SUM(nilai_rp) as total_nilai_rp
         FROM transaksi 
-        GROUP BY nasabah_name
+        GROUP BY nama_nasabah
         ORDER BY total_nilai_rp DESC
     """
     df = pd.read_sql_query(query, conn)
