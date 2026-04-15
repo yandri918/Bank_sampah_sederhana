@@ -7,7 +7,7 @@ import plotly.express as px
 import streamlit as st
 from modules.database import (
     init_db, upsert_gsheet_data, get_transactions_df, 
-    verify_user, create_user
+    verify_user, create_user, get_setting, update_setting
 )
 
 # Initialize Database
@@ -164,14 +164,27 @@ with st.sidebar:
         "https://docs.google.com/forms/d/e/1FAIpQLSdXSuFX_RaEspHEZ7HLsdQ4cGHYJUO4IUQrE8qk1DexHJ9-HA/viewform",
         use_container_width=True,
     )
+    
+    # Load URL from DB or Secrets as fallback
+    # We use the URL you provided as the ultimate fallback
+    provided_url = "https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0"
+    db_url = get_setting("BANK_SAMPAH_SHEET_URL")
+    
+    if not db_url or "sheet_id" in db_url:
+        default_url = st.secrets.get("BANK_SAMPAH_SHEET_URL", provided_url)
+    else:
+        default_url = db_url
+    
     sheet_url = st.text_input(
-        "URL Google Sheet Response",
-        value=st.secrets.get("BANK_SAMPAH_SHEET_URL", ""),
-        placeholder="https://docs.google.com/spreadsheets/d/<sheet_id>/edit#gid=0",
+        "URL Google Sheet Aktif",
+        value=default_url,
+        placeholder="https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0",
+        help="URL ini digunakan sebagai sumber data. Anda bisa mengubahnya di tab Pengaturan."
     )
     
     if st.session_state.authenticated:
-        if st.button("🔄 Sinkronisasi GSheet", use_container_width=True):
+        st.info("💡 Klik tombol di bawah untuk mengambil data dari Google Sheet.")
+        if st.button("🚀 MULAI SINKRONISASI", use_container_width=True, type="primary"):
             if sheet_url:
                 with st.spinner("Mensinkronkan data..."):
                     try:
@@ -219,10 +232,13 @@ if not df_db.empty:
     df = df_db[(df_db['tanggal'].dt.date >= start_date) & (df_db['tanggal'].dt.date <= end_date)].copy()
 else:
     df = pd.DataFrame()
-    st.warning("Data belum tersedia. Silakan lakukan sinkronisasi di sidebar (memerlukan login admin).")
+    st.warning("👋 Selamat Datang! Data masih kosong.")
+    st.info("Silakan login di sidebar (atau gunakan akun admin) lalu klik tombol **🚀 MULAI SINKRONISASI** untuk menarik data dari Google Sheet.")
 
 if df.empty:
-    st.info("Tidak ada data untuk rentang waktu ini atau database kosong.")
+    st.info("Tidak ada data untuk rentang waktu ini atau database masih kosong.")
+    if not st.session_state.authenticated:
+        st.write("Silakan Login & Sinkronisasi di sidebar.")
     st.stop()
 
 # --- Calculations & Metrics ---
@@ -248,8 +264,8 @@ c2.metric("Total Berat", f"{total_berat:,.1f} kg", delta=f"{berat_delta:,.1f} kg
 c3.metric("Pendapatan", f"Rp {total_pendapatan:,.0f}", delta=f"Rp {pendapatan_delta:,.0f} (Bulan ini)")
 c4.metric("Saldo", f"Rp {saldo:,.0f}")
 
-tab_nasabah, tab_alur, tab_pembukuan, tab_keuangan, tab_raw = st.tabs(
-    ["Database Nasabah", "Alur Sampah", "Pembukuan", "Keuangan", "Data Mentah"]
+tab_nasabah, tab_alur, tab_pembukuan, tab_keuangan, tab_raw, tab_settings = st.tabs(
+    ["Database Nasabah", "Alur Sampah", "Pembukuan", "Keuangan", "Data Mentah", "⚙️ Pengaturan"]
 )
 
 with tab_nasabah:
@@ -322,3 +338,23 @@ with tab_raw:
         file_name="bank_sampah_data.csv",
         mime="text/csv",
     )
+
+with tab_settings:
+    st.header("Konfigurasi Sistem")
+    if st.session_state.authenticated:
+        st.subheader("Google Sheets Link")
+        new_url = st.text_input("Ganti URL Google Sheet Response", value=sheet_url)
+        if st.button("Simpan Pengaturan"):
+            update_setting("BANK_SAMPAH_SHEET_URL", new_url)
+            st.success("Konfigurasi berhasil disimpan ke database!")
+            st.rerun()
+        
+        st.divider()
+        st.subheader("Manajemen Data")
+        if st.button("⚠️ Bersihkan Semua Data Transaksi", type="secondary"):
+            from modules.database import clear_all_data
+            clear_all_data()
+            st.warning("Semua data telah dihapus.")
+            st.rerun()
+    else:
+        st.info("Silakan login untuk mengakses pengaturan sistem.")

@@ -44,6 +44,11 @@ def init_db():
             source TEXT DEFAULT 'GSheet',
             gsheet_id TEXT UNIQUE -- To prevent duplicates from GSheet
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
     """)
     conn.commit()
     conn.close()
@@ -131,6 +136,18 @@ def clear_all_data():
     conn = get_connection()
     conn.execute("DELETE FROM transaksi")
     conn.execute("DELETE FROM nasabah")
+    conn.commit()
+    conn.close()
+
+def get_setting(key, default=None):
+    conn = get_connection()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row[0] if row else default
+
+def update_setting(key, value):
+    conn = get_connection()
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
     conn.commit()
     conn.close()
 
