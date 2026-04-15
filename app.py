@@ -7,12 +7,11 @@ import plotly.express as px
 import streamlit as st
 from modules.database import (
     init_db, upsert_gsheet_data, get_transactions_df, 
-    verify_user, create_user, get_setting, update_setting,
+    verify_user, create_user, register_bsi, get_setting, update_setting,
     upsert_nasabah_data, get_nasabah_df,
     get_master_sampah, update_master_sampah, delete_master_sampah,
     save_transaction, save_penarikan, get_withdrawals_df, upsert_withdrawal_data,
-    get_withdrawals_df, upsert_withdrawal_data, get_master_sampah, update_master_sampah, delete_master_sampah,
-    get_nasabah_summary, get_bsu_summary, get_waste_stats_by_type
+    get_nasabah_summary, get_bsu_summary, get_waste_stats_by_type, clear_all_data
 )
 from modules.cards import generate_member_card, generate_qr_code, generate_withdrawal_receipt
 from modules.reporting import generate_official_report_pdf, generate_funding_proposal_pdf
