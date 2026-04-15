@@ -12,9 +12,10 @@ from modules.database import (
     get_master_sampah, update_master_sampah, delete_master_sampah,
     save_transaction, save_penarikan, get_withdrawals_df, upsert_withdrawal_data,
     get_withdrawals_df, upsert_withdrawal_data, get_master_sampah, update_master_sampah, delete_master_sampah,
-    get_nasabah_summary, get_bsu_summary
+    get_nasabah_summary, get_bsu_summary, get_waste_stats_by_type
 )
 from modules.cards import generate_member_card, generate_qr_code, generate_withdrawal_receipt
+from modules.reporting import generate_official_report_pdf, generate_funding_proposal_pdf
 
 # Initialize Database
 init_db()
@@ -345,9 +346,10 @@ tabs = st.tabs([
     "👥 Database Anggota", 
     "📦 Data Sampah",
     "📜 Riwayat",
+    "📄 Laporan",
     "⚙️ Pengaturan"
 ])
-tab_dash, tab_ops, tab_nasabah, tab_master, tab_riwayat, tab_settings = tabs
+tab_dash, tab_ops, tab_nasabah, tab_master, tab_riwayat, tab_report, tab_settings = tabs
 
 with tab_dash:
     st.header("📊 Dashboard Strategis Bank Sampah")
@@ -466,6 +468,57 @@ with tab_dash:
             st.dataframe(dash_tarik[["tanggal", "nama_nasabah", "nominal_fmt", "metode"]], use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data penarikan.")
+
+with tab_report:
+    st.header("📄 Generator Laporan & Proposal Resmi")
+    if not st.session_state.authenticated:
+        st.warning("Hanya Admin yang dapat mengakses fitur pelaporan strategis.")
+    else:
+        rep_mode = st.radio("Pilih Dokumen yang Akan Dibuat", ["📑 Laporan Bulanan (DLH)", "🤝 Proposal Penguatan (CSR/Bank)"], horizontal=True)
+        
+        if rep_mode == "📑 Laporan Bulanan (DLH)":
+            st.subheader("Penyusunan Laporan Bulanan")
+            st.info("Data identitas dan statistik sampah akan ditarik otomatis dari sistem.")
+            
+            with st.form("form_report_dlh"):
+                act = st.text_area("Aktivitas Bulan Ini", placeholder="Contoh: Sosialisasi BSU baru, Penimbangan rutin...")
+                cons = st.text_area("Kendala Lapangan", placeholder="Contoh: Kurangnya timbangan duduk, sdm terbatas...")
+                plan = st.text_area("Rencana Bulan Depan", placeholder="Contoh: Penambahan 2 BSU baru, digitalisasi RT 05...")
+                
+                if st.form_submit_button("🚀 GENERATE LAPORAN PDF", use_container_width=True, type="primary"):
+                    # Prepare Data
+                    report_data = {
+                        "nasabah_count": len(nasabah_summary_df),
+                        "total_berat": nasabah_summary_df['total_berat_kg'].sum() if not nasabah_summary_df.empty else 0,
+                        "total_setoran": total_setoran_all,
+                        "saldo": saldo_kas_total,
+                        "waste_stats": get_waste_stats_by_type(),
+                        "activities": act,
+                        "constraints": cons,
+                        "plans": plan
+                    }
+                    pdf_bytes = generate_official_report_pdf(report_data)
+                    st.success("Laporan Berhasil Dibuat!")
+                    st.download_button("📥 DOWNLOAD LAPORAN (PDF)", data=pdf_bytes, file_name=f"Laporan_BSI_{datetime.now().strftime('%b_%Y')}.pdf", mime="application/pdf", use_container_width=True)
+
+        else:
+            st.subheader("Penyusunan Proposal Penguatan")
+            with st.form("form_proposal"):
+                back = st.text_area("Latar Belakang & Masalah", value="Permasalahan sampah di wilayah kami memerlukan penanganan serius. Meskipun sistem digital sudah berjalan, kami memerlukan dukungan sarana fisik...")
+                goal = st.text_area("Tujuan Pengajuan", value="Meningkatkan kapasitas pengelolaan sampah dari 1 ton menjadi 5 ton per bulan.")
+                prog = st.text_area("Program yang Ditawarkan", value="1. Digitalisasi RT menyeluruh\n2. Pengolahan Kompos Mandiri")
+                budg = st.text_area("Kebutuhan & Anggaran", value="1. Timbangan Digital: Rp 2.500.000\n2. Motor Roda Tiga: Rp 35.000.000")
+                
+                if st.form_submit_button("🏦 GENERATE PROPOSAL PDF", use_container_width=True, type="primary"):
+                    prop_data = {
+                        "background": back,
+                        "goals": goal,
+                        "programs": prog,
+                        "budget": budg
+                    }
+                    pdf_bytes = generate_funding_proposal_pdf(prop_data)
+                    st.success("Proposal Berhasil Dibuat!")
+                    st.download_button("📥 DOWNLOAD PROPOSAL (PDF)", data=pdf_bytes, file_name=f"Proposal_BSI_BinaMandiri.pdf", mime="application/pdf", use_container_width=True)
 
 with tab_ops:
     st.header("🏦 Pusat Operasional Hybrid")

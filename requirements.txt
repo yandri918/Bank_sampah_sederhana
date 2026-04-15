@@ -3,3 +3,4 @@ pandas
 plotly
 qrcode
 Pillow
+fpdf2

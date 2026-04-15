@@ -379,6 +379,20 @@ def upsert_withdrawal_data(df: pd.DataFrame):
     conn.close()
     return success_count, duplicate_count
 
+def get_waste_stats_by_type():
+    """Aggregates total weight per waste type."""
+    conn = get_connection()
+    query = """
+        SELECT jenis_sampah, SUM(berat_kg) as total_berat
+        FROM transaksi
+        WHERE jenis_sampah IS NOT NULL AND jenis_sampah != ''
+        GROUP BY jenis_sampah
+        ORDER BY total_berat DESC
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
 def get_bsu_summary():
     """Aggregates performance data per Bank Sampah Unit (BSU)."""
     conn = get_connection()
