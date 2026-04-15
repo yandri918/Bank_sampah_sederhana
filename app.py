@@ -7,7 +7,8 @@ import plotly.express as px
 import streamlit as st
 from modules.database import (
     init_db, upsert_gsheet_data, get_transactions_df, 
-    verify_user, create_user, get_setting, update_setting
+    verify_user, create_user, get_setting, update_setting,
+    upsert_nasabah_data, get_nasabah_df
 )
 
 # Initialize Database
@@ -29,6 +30,16 @@ EXPECTED_FIELDS: Dict[str, Iterable[str]] = {
     "nilai_rp": ("nilai", "total", "rupiah", "rp", "subtotal"),
     "status_alur": ("status", "alur", "proses", "tahap"),
     "pembayaran": ("pembayaran", "dibayar", "cash out", "transfer"),
+}
+
+EXPECTED_FIELDS_REGISTRATION: Dict[str, Iterable[str]] = {
+    "nama": ("nama", "name"),
+    "email": ("email",),
+    "alamat": ("alamat lengkap", "alamat", "address"),
+    "no_hp": ("no hp", "no wa", "whatsapp", "phone"),
+    "unit": ("bank sampah unit", "unit"),
+    "jenis_nasabah": ("jenis nasabah", "kategori nasabah"),
+    "status_aturan": ("bersedia mengikuti aturan", "aturan"),
 }
 
 
@@ -112,6 +123,24 @@ def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _normalize_nasabah_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
+    df = raw_df.copy()
+    mapped_cols = {}
+
+    for field_name, aliases in EXPECTED_FIELDS_REGISTRATION.items():
+        found = _find_col(df.columns, aliases)
+        if found:
+            mapped_cols[field_name] = found
+
+    for field_name in EXPECTED_FIELDS_REGISTRATION.keys():
+        if field_name in mapped_cols:
+            df[field_name] = df[mapped_cols[field_name]].astype(str)
+        else:
+            df[field_name] = "-"
+            
+    return df
+
+
 @st.cache_data(ttl=120)
 def _load_gsheet_csv(csv_url: str) -> pd.DataFrame:
     return pd.read_csv(csv_url)
@@ -179,6 +208,7 @@ with st.sidebar:
     # We use the URL you provided as the ultimate fallback
     provided_url = "https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0"
     db_url = get_setting("BANK_SAMPAH_SHEET_URL")
+    reg_url = get_setting("BANK_SAMPAH_REGISTRATION_URL", "")
     
     if not db_url or "sheet_id" in db_url:
         default_url = st.secrets.get("BANK_SAMPAH_SHEET_URL", provided_url)
@@ -186,33 +216,54 @@ with st.sidebar:
         default_url = db_url
     
     sheet_url = st.text_input(
-        "URL Google Sheet Aktif",
+        "URL Google Sheet Transaksi",
         value=default_url,
-        placeholder="https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0",
-        help="URL ini digunakan sebagai sumber data. Anda bisa mengubahnya di tab Pengaturan."
+        placeholder="https://docs.google.com/spreadsheets/d/<sheet_id>/edit#gid=0",
+    )
+    
+    reg_sheet_url = st.text_input(
+        "URL Google Sheet Pendaftaran",
+        value=reg_url,
+        placeholder="https://docs.google.com/spreadsheets/d/<sheet_id>/edit#gid=0",
     )
     
     if st.session_state.authenticated:
-        st.info("💡 Klik tombol di bawah untuk mengambil data dari Google Sheet.")
-        if st.button("🚀 MULAI SINKRONISASI", use_container_width=True, type="primary"):
-            if sheet_url:
-                with st.spinner("Mensinkronkan data..."):
-                    try:
-                        csv_url_sync = _build_sheet_csv_url(sheet_url)
-                        if not csv_url_sync:
-                            st.sidebar.error("Format URL Google Sheet tidak valid. Pastikan URL berisi '/spreadsheets/d/<ID>/'.")
-                        else:
-                            raw_data = _load_gsheet_csv(csv_url_sync)
-                            norm_df = _normalize_dataframe(raw_data)
-                            added, dups = upsert_gsheet_data(norm_df)
-                            st.sidebar.success(f"Berhasil: {added} data baru, {dups} duplikat diabaikan.")
-                            st.cache_data.clear()
-                            st.rerun()
-                    except Exception as e:
-                        if "401" in str(e) or "Unauthorized" in str(e):
-                            st.sidebar.error("🚫 Akses Ditolak (401). Mohon buka Google Sheet Anda, klik tombol 'Share', dan ubah akses menjadi 'Anyone with the link can view'.")
-                        else:
-                            st.sidebar.error(f"Gagal sinkron: {e}")
+        st.info("💡 Klik tombol di bawah untuk sinkronisasi.")
+        col_sync1, col_sync2 = st.columns(2)
+        with col_sync1:
+            if st.button("🚀 SYNC TRANSAKSI", use_container_width=True, type="primary"):
+                if sheet_url:
+                    with st.spinner("Sinkron Transaksi..."):
+                        try:
+                            csv_url_sync = _build_sheet_csv_url(sheet_url)
+                            if not csv_url_sync:
+                                st.sidebar.error("Link Sheet Transaksi tidak valid.")
+                            else:
+                                raw_data = _load_gsheet_csv(csv_url_sync)
+                                norm_df = _normalize_dataframe(raw_data)
+                                added, dups = upsert_gsheet_data(norm_df)
+                                st.sidebar.success(f"Transaksi: +{added} baru")
+                                st.cache_data.clear()
+                                st.rerun()
+                        except Exception as e:
+                            st.sidebar.error(f"Gagal: {e}")
+        
+        with col_sync2:
+            if st.button("👥 SYNC NASABAH", use_container_width=True):
+                if reg_sheet_url:
+                    with st.spinner("Sinkron Nasabah..."):
+                        try:
+                            csv_url_reg = _build_sheet_csv_url(reg_sheet_url)
+                            if not csv_url_reg:
+                                st.sidebar.error("Link Sheet Pendaftaran tidak valid.")
+                            else:
+                                raw_reg = _load_gsheet_csv(csv_url_reg)
+                                norm_reg = _normalize_nasabah_dataframe(raw_reg)
+                                added, updated = upsert_nasabah_data(norm_reg)
+                                st.sidebar.success(f"Nasabah: +{added} baru, {updated} update")
+                                st.rerun()
+                        except Exception as e:
+                            st.sidebar.error(f"Gagal: {e}")
             else:
                 st.sidebar.warning("Masukkan URL GSheet dulu.")
 
@@ -282,18 +333,37 @@ tab_nasabah, tab_alur, tab_pembukuan, tab_keuangan, tab_raw, tab_settings = st.t
 )
 
 with tab_nasabah:
-    nasabah_df = (
+    # Merge transaction summary with detailed profile
+    nasabah_list_df = get_nasabah_df()
+    trans_summary = (
         df.groupby("nama_nasabah", as_index=False)
         .agg(
             total_transaksi=("nama_nasabah", "count"),
             total_berat_kg=("berat_kg", "sum"),
             total_nilai_rp=("nilai_rp", "sum"),
         )
-        .sort_values("total_nilai_rp", ascending=False)
     )
-    st.dataframe(nasabah_df, use_container_width=True, hide_index=True)
+    
+    merged_nasabah = pd.merge(
+        nasabah_list_df, trans_summary, 
+        left_on="nama", right_on="nama_nasabah", 
+        how="left"
+    ).fillna(0)
+    
+    st.subheader("Database Anggota Lengkap")
+    st.dataframe(
+        merged_nasabah[[
+            "nama", "unit", "jenis_nasabah", "total_transaksi", 
+            "total_berat_kg", "total_nilai_rp", "email", "no_hp", "alamat"
+        ]], 
+        use_container_width=True, 
+        hide_index=True
+    )
+    
     st.plotly_chart(
-        px.bar(nasabah_df.head(10), x="nama_nasabah", y="total_nilai_rp", title="Top 10 Nilai Setoran Nasabah"),
+        px.bar(merged_nasabah.sort_values("total_nilai_rp", ascending=False).head(10), 
+               x="nama", y="total_nilai_rp", color="unit",
+               title="Top 10 Nasabah Berdasarkan Nilai Setoran"),
         use_container_width=True,
     )
 
@@ -356,9 +426,12 @@ with tab_settings:
     st.header("Konfigurasi Sistem")
     if st.session_state.authenticated:
         st.subheader("Google Sheets Link")
-        new_url = st.text_input("Ganti URL Google Sheet Response", value=sheet_url)
+        new_url = st.text_input("URL Google Sheet Transaksi", value=sheet_url)
+        new_reg_url = st.text_input("URL Google Sheet Pendaftaran Nasabah", value=reg_sheet_url)
+        
         if st.button("Simpan Pengaturan"):
             update_setting("BANK_SAMPAH_SHEET_URL", new_url)
+            update_setting("BANK_SAMPAH_REGISTRATION_URL", new_reg_url)
             st.success("Konfigurasi berhasil disimpan ke database!")
             st.rerun()
         

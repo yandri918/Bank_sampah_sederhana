@@ -25,7 +25,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS nasabah (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nama TEXT UNIQUE,
-            rt_rw TEXT,
+            email TEXT,
+            alamat TEXT,
+            no_hp TEXT,
+            unit TEXT,
+            jenis_nasabah TEXT,
+            status_aturan TEXT,
             total_poin REAL DEFAULT 0,
             last_transaction TIMESTAMP
         );
@@ -132,12 +137,50 @@ def verify_user(username, password):
     conn.close()
     return user
 
-def clear_all_data():
+def upsert_nasabah_data(df: pd.DataFrame):
+    """Import normalized Member Registration dataframe."""
     conn = get_connection()
-    conn.execute("DELETE FROM transaksi")
-    conn.execute("DELETE FROM nasabah")
+    success_count = 0
+    update_count = 0
+    
+    for _, row in df.iterrows():
+        try:
+            # Check if exists
+            existing = conn.execute("SELECT id FROM nasabah WHERE nama = ?", (row['nama'],)).fetchone()
+            if existing:
+                conn.execute("""
+                    UPDATE nasabah SET 
+                        email = ?, alamat = ?, no_hp = ?, unit = ?, 
+                        jenis_nasabah = ?, status_aturan = ?
+                    WHERE nama = ?
+                """, (
+                    row.get('email'), row.get('alamat'), row.get('no_hp'),
+                    row.get('unit'), row.get('jenis_nasabah'), row.get('status_aturan'),
+                    row['nama']
+                ))
+                update_count += 1
+            else:
+                conn.execute("""
+                    INSERT INTO nasabah (
+                        nama, email, alamat, no_hp, unit, jenis_nasabah, status_aturan
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row['nama'], row.get('email'), row.get('alamat'), row.get('no_hp'),
+                    row.get('unit'), row.get('jenis_nasabah'), row.get('status_aturan')
+                ))
+                success_count += 1
+        except Exception:
+            pass
+            
     conn.commit()
     conn.close()
+    return success_count, update_count
+
+def get_nasabah_df():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM nasabah ORDER BY nama ASC", conn)
+    conn.close()
+    return df
 
 def get_setting(key, default=None):
     conn = get_connection()
