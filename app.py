@@ -18,7 +18,7 @@ from modules.database import (
 init_db()
 
 st.set_page_config(
-    page_title="Bank Sampah Streamlit",
+    page_title="Bank Sampah Digital V2 (Hybrid)",
     page_icon="♻️",
     layout="wide",
 )
