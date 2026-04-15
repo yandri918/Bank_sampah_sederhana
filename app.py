@@ -131,8 +131,9 @@ def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
         else:
             df[num_field] = 0.0
 
-    if (df["nilai_rp"] <= 0).all() and (df["berat_kg"] > 0).any() and (df["harga_per_kg"] > 0).any():
-        df["nilai_rp"] = df["berat_kg"] * df["harga_per_kg"]
+    # Robust calculation: only fill nilai_rp if it's 0 but berat and harga are present
+    mask = (df["nilai_rp"] <= 0) & (df["berat_kg"] > 0) & (df["harga_per_kg"] > 0)
+    df.loc[mask, "nilai_rp"] = df.loc[mask, "berat_kg"] * df.loc[mask, "harga_per_kg"]
 
     return df
 
@@ -352,14 +353,46 @@ with tab_dash:
     d_col1, d_col2 = st.columns(2)
     with d_col1:
         st.subheader("Setoran Terakhir")
-        st.dataframe(df_db.head(10)[["tanggal", "nama_nasabah", "jenis_sampah", "nilai_rp"]], use_container_width=True, hide_index=True)
+        if not df.empty:
+            # Format display for the dashboard table
+            dash_setoran = df.head(10).copy()
+            dash_setoran['tanggal_fmt'] = dash_setoran['tanggal'].dt.strftime('%d %b %Y')
+            dash_setoran['nilai_fmt'] = dash_setoran['nilai_rp'].apply(format_rupiah)
+            
+            st.dataframe(
+                dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_sampah", "nilai_fmt"]].rename(columns={
+                    "tanggal_fmt": "Tanggal",
+                    "nama_nasabah": "Nasabah",
+                    "jenis_sampah": "Sampah",
+                    "nilai_fmt": "Nilai"
+                }),
+                use_container_width=True, 
+                hide_index=True
+            )
+        else:
+            st.info("Tidak ada data setoran.")
+            
     with d_col2:
         st.subheader("Penarikan Terakhir")
         wd_history = get_withdrawals_df()
         if not wd_history.empty:
-            st.dataframe(wd_history.head(10)[["tanggal", "nama_nasabah", "nominal"]], use_container_width=True, hide_index=True)
+            # Format withdrawals
+            dash_tarik = wd_history.head(10).copy()
+            dash_tarik['tanggal'] = pd.to_datetime(dash_tarik['tanggal'])
+            dash_tarik['tanggal_fmt'] = dash_tarik['tanggal'].dt.strftime('%d %b %Y')
+            dash_tarik['nominal_fmt'] = dash_tarik['nominal'].apply(format_rupiah)
+            
+            st.dataframe(
+                dash_tarik[["tanggal_fmt", "nama_nasabah", "nominal_fmt"]].rename(columns={
+                    "tanggal_fmt": "Tanggal",
+                    "nama_nasabah": "Nasabah",
+                    "nominal_fmt": "Nominal"
+                }),
+                use_container_width=True, 
+                hide_index=True
+            )
         else:
-            st.info("Belum ada data penarikan saldo.")
+            st.info("Belum ada data penarikan.")
 
 with tab_setor:
     st.header("➕ Pencatatan Setoran Sampah")
