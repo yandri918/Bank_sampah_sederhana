@@ -45,7 +45,7 @@ def init_db():
         if col not in existing_trans_cols:
             cursor.execute(f"ALTER TABLE transaksi ADD COLUMN {col} {col_type}")
 
-    # Table for Penarikan (New)
+    # Table for Penarikan (Advanced)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS penarikan (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,10 +53,25 @@ def init_db():
             nama_nasabah TEXT,
             nominal REAL,
             keterangan TEXT,
+            metode TEXT DEFAULT 'Cash',
+            petugas TEXT,
+            unit TEXT,
             source TEXT DEFAULT 'Manual',
             gsheet_id TEXT UNIQUE
         );
     """)
+
+    # Migration for existing penarikan table
+    cursor.execute("PRAGMA table_info(penarikan)")
+    existing_wd_cols = [col[1] for col in cursor.fetchall()]
+    new_wd_cols = {
+        "metode": "TEXT DEFAULT 'Cash'",
+        "petugas": "TEXT",
+        "unit": "TEXT"
+    }
+    for col, col_type in new_wd_cols.items():
+        if col not in existing_wd_cols:
+            cursor.execute(f"ALTER TABLE penarikan ADD COLUMN {col} {col_type}")
 
     # Table for Master Sampah (New)
     cursor.execute("""
@@ -318,12 +333,17 @@ def save_penarikan(data: dict):
     conn = get_connection()
     try:
         conn.execute("""
-            INSERT INTO penarikan (tanggal, nama_nasabah, nominal, keterangan, source)
-            VALUES (?, ?, ?, ?, ?)
-        """, (data['tanggal'], data['nama_nasabah'], data['nominal'], data['keterangan'], 'Manual'))
+            INSERT INTO penarikan (tanggal, nama_nasabah, nominal, keterangan, metode, petugas, unit, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data['tanggal'], data['nama_nasabah'], data['nominal'], 
+            data.get('keterangan', '-'), data.get('metode', 'Cash'),
+            data.get('petugas', '-'), data.get('unit', '-'), 'Manual'
+        ))
         conn.commit()
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Error save_penarikan: {e}")
         return False
     finally:
         conn.close()
@@ -344,11 +364,13 @@ def upsert_withdrawal_data(df: pd.DataFrame):
         gsheet_id = f"WD_{timestamp_str}_{row['nama_nasabah']}_{row['nominal']}"
         try:
             conn.execute("""
-                INSERT INTO penarikan (tanggal, nama_nasabah, nominal, keterangan, source, gsheet_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO penarikan (tanggal, nama_nasabah, nominal, keterangan, metode, petugas, unit, source, gsheet_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 row['tanggal'].strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(row['tanggal']) else None,
-                row['nama_nasabah'], row['nominal'], row.get('keterangan', '-'), 'GSheet', gsheet_id
+                row['nama_nasabah'], row['nominal'], row.get('keterangan', '-'),
+                row.get('metode', 'Cash'), row.get('petugas', '-'), row.get('unit', '-'),
+                'GSheet', gsheet_id
             ))
             success_count += 1
         except sqlite3.IntegrityError:

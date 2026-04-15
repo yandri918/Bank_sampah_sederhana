@@ -80,3 +80,58 @@ def generate_qr_code(data):
     img_byte_arr = io.BytesIO()
     img.save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue()
+
+def generate_withdrawal_receipt(data):
+    """
+    Generates a digital withdrawal receipt image.
+    data: dict with keys 'nama_nasabah', 'nominal', 'metode', 'petugas', 'tanggal', 'keterangan'
+    """
+    width, height = 600, 850
+    card = Image.new('RGB', (width, height), color=(255, 255, 255))
+    draw = ImageDraw.Draw(card)
+    
+    try:
+        font_header = ImageFont.truetype("arialbd.ttf", 35)
+        font_sub = ImageFont.truetype("arial.ttf", 25)
+        font_bold = ImageFont.truetype("arialbd.ttf", 28)
+        font_main = ImageFont.truetype("arial.ttf", 22)
+    except:
+        font_header = font_sub = font_bold = font_main = ImageFont.load_default()
+
+    # Header / Title
+    draw.rectangle([0, 0, width, 150], fill=(220, 20, 60)) # Crimson Red for Withdrawal
+    draw.text((width//2, 50), "STRUK PENARIKAN SALDO", fill=(255, 255, 255), font=font_header, anchor="mm")
+    draw.text((width//2, 100), "BANK SAMPAH DIGITAL", fill=(255, 255, 255), font=font_sub, anchor="mm")
+
+    # Transaction Info
+    y = 200
+    rows = [
+        ("Tanggal", data.get('tanggal', '-')),
+        ("Nasabah", data.get('nama_nasabah', '-')),
+        ("-------------------", "-------------------"),
+        ("NOMINAL", f"Rp {data.get('nominal', 0):,.0f}"),
+        ("Metode", data.get('metode', 'Cash')),
+        ("Petugas", data.get('petugas', '-')),
+        ("Keterangan", data.get('keterangan', '-')),
+    ]
+
+    for label, val in rows:
+        if label.startswith("---"):
+            draw.text((width//2, y), label, fill=(200, 200, 200), font=font_main, anchor="mm")
+        elif label == "NOMINAL":
+            draw.text((50, y), label, fill=(220, 20, 60), font=font_bold)
+            draw.text((250, y), f": {val}", fill=(220, 20, 60), font=font_bold)
+        else:
+            draw.text((50, y), label, fill=(100, 100, 100), font=font_main)
+            draw.text((250, y), f": {val}", fill=(0, 0, 0), font=font_main)
+        y += 60
+
+    # Footer
+    draw.line([50, height-150, width-50, height-150], fill=(200, 200, 200), width=1)
+    footer_text = "Simpan struk ini sebagai bukti resmi penarikan.\nTerima kasih telah bersama kami menjaga lingkungan."
+    draw.multiline_text((width//2, height-100), footer_text, fill=(150, 150, 150), font=font_main, anchor="mm", align="center")
+    
+    # Save
+    img_byte_arr = io.BytesIO()
+    card.save(img_byte_arr, format='PNG')
+    return img_byte_arr.getvalue()
