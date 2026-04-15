@@ -779,7 +779,7 @@ with tab_settings:
         
         # 2. NASABAH SYNC
         st.subheader("2. Data Pendaftaran Anggota")
-        r_url_input = st.text_input("GSheet Pendaftaran Nasabah", value=reg_sheet_url)
+        r_url_input = st.text_input("GSheet Pendaftaran Nasabah", value=reg_url)
         if st.button("🚀 SINKRONISASI ANGGOTA SEKARANG", use_container_width=True):
             with st.spinner("Sinkronisasi anggota..."):
                 try:
@@ -794,7 +794,7 @@ with tab_settings:
 
         # 3. PENARIKAN SYNC
         st.subheader("3. Data Penarikan Saldo")
-        w_url_input = st.text_input("GSheet Riwayat Penarikan", value=withdrawal_sheet_url)
+        w_url_input = st.text_input("GSheet Riwayat Penarikan", value=wd_url)
         if st.button("🚀 SINKRONISASI PENARIKAN SEKARANG", use_container_width=True):
             with st.spinner("Sinkronisasi penarikan..."):
                 try:
