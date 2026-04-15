@@ -12,29 +12,8 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Tables for Waste Bank Ecosystem
-    cursor.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            full_name TEXT,
-            role TEXT DEFAULT 'staff'
-        );
-
-        CREATE TABLE IF NOT EXISTS nasabah (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nama TEXT UNIQUE,
-            email TEXT,
-            alamat TEXT,
-            no_hp TEXT,
-            unit TEXT,
-            jenis_nasabah TEXT,
-            status_aturan TEXT,
-            total_poin REAL DEFAULT 0,
-            last_transaction TIMESTAMP
-        );
-
+    # Table for Transaksi
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS transaksi (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tanggal TIMESTAMP,
@@ -47,14 +26,56 @@ def init_db():
             pembayaran REAL,
             status_alur TEXT DEFAULT 'Selesai',
             source TEXT DEFAULT 'GSheet',
-            gsheet_id TEXT UNIQUE -- To prevent duplicates from GSheet
+            gsheet_id TEXT UNIQUE
         );
+    """)
 
+    # Table for Nasabah
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS nasabah (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nama TEXT UNIQUE
+        );
+    """)
+
+    # Auto-Migration: Add missing columns to nasabah table
+    cursor.execute("PRAGMA table_info(nasabah)")
+    existing_cols = [row[1] for row in cursor.fetchall()]
+    
+    required_cols = {
+        "email": "TEXT",
+        "alamat": "TEXT",
+        "no_hp": "TEXT",
+        "unit": "TEXT",
+        "jenis_nasabah": "TEXT",
+        "status_aturan": "TEXT",
+        "total_poin": "REAL DEFAULT 0",
+        "last_transaction": "TIMESTAMP"
+    }
+    
+    for col, col_type in required_cols.items():
+        if col not in existing_cols:
+            cursor.execute(f"ALTER TABLE nasabah ADD COLUMN {col} {col_type}")
+
+    # Table for Settings
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
         );
     """)
+    
+    # Table for Users
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            full_name TEXT,
+            role TEXT DEFAULT 'staff'
+        );
+    """)
+    
     conn.commit()
     conn.close()
 

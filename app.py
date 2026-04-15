@@ -351,11 +351,13 @@ with tab_nasabah:
     ).fillna(0)
     
     st.subheader("Database Anggota Lengkap")
+    # Using reindex for safety - it will create columns with NaN if they don't exist yet
+    display_cols = [
+        "nama", "unit", "jenis_nasabah", "total_transaksi", 
+        "total_berat_kg", "total_nilai_rp", "email", "no_hp", "alamat"
+    ]
     st.dataframe(
-        merged_nasabah[[
-            "nama", "unit", "jenis_nasabah", "total_transaksi", 
-            "total_berat_kg", "total_nilai_rp", "email", "no_hp", "alamat"
-        ]], 
+        merged_nasabah.reindex(columns=display_cols), 
         use_container_width=True, 
         hide_index=True
     )
