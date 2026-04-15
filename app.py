@@ -13,6 +13,7 @@ from modules.database import (
     save_transaction, save_penarikan, get_withdrawals_df, upsert_withdrawal_data,
     get_nasabah_summary
 )
+from modules.cards import generate_member_card
 
 # Initialize Database
 init_db()
@@ -505,23 +506,51 @@ with tab_nasabah:
     st.subheader("👥 Database Anggota & Saldo")
     # Clean and Format for display
     n_display = nasabah_summary_df.copy()
-    n_display['saldo_fmt'] = n_display['saldo'].apply(format_rupiah)
-    n_display['setoran_fmt'] = n_display['total_setoran'].apply(format_rupiah)
-    n_display['tarik_fmt'] = n_display['total_penarikan'].apply(format_rupiah)
-    
-    st.dataframe(
-        n_display[[
-            "nama_nasabah", "saldo_fmt", "setoran_fmt", "tarik_fmt", "total_berat_kg"
-        ]].rename(columns={
-            "nama_nasabah": "Nama Nasabah",
-            "saldo_fmt": "Saldo Aktif",
-            "setoran_fmt": "Total Tabungan",
-            "tarik_fmt": "Total Ambil",
-            "total_berat_kg": "Sampah (kg)"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
+    if not n_display.empty:
+        n_display['saldo_fmt'] = n_display['saldo'].apply(format_rupiah)
+        n_display['setoran_fmt'] = n_display['total_setoran'].apply(format_rupiah)
+        n_display['tarik_fmt'] = n_display['total_penarikan'].apply(format_rupiah)
+        
+        st.dataframe(
+            n_display[[
+                "nama_nasabah", "saldo_fmt", "setoran_fmt", "tarik_fmt", "total_berat_kg"
+            ]].rename(columns={
+                "nama_nasabah": "Nama Nasabah",
+                "saldo_fmt": "Saldo Aktif",
+                "setoran_fmt": "Total Tabungan",
+                "tarik_fmt": "Total Ambil",
+                "total_berat_kg": "Sampah (kg)"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.divider()
+        st.subheader("🪪 Cetak Kartu Anggota")
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            target_nasabah = st.selectbox("Pilih Anggota untuk Pratinjau Kartu", options=n_display["nama_nasabah"].tolist())
+        
+        if target_nasabah:
+            # Get full data for card
+            n_df_full = get_nasabah_df()
+            member_match = n_df_full[n_df_full["nama"] == target_nasabah]
+            
+            if not member_match.empty:
+                member_info = member_match.iloc[0].to_dict()
+                card_bytes = generate_member_card(member_info)
+                
+                st.image(card_bytes, caption=f"Pratinjau Kartu: {target_nasabah}", use_container_width=True)
+                
+                st.download_button(
+                    label=f"📥 Unduh Kartu {target_nasabah}",
+                    data=card_bytes,
+                    file_name=f"Kartu_{target_nasabah.replace(' ', '_')}.png",
+                    mime="image/png",
+                    type="primary"
+                )
+    else:
+        st.info("Belum ada data anggota. Silakan lakukan sinkronisasi pendaftaran nasabah.")
 
 with tab_master:
     st.header("📦 Pengaturan Harga Sampah")
