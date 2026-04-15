@@ -147,7 +147,7 @@ def upsert_gsheet_data(df: pd.DataFrame):
         
         try:
             conn.execute("""
-                INSERT INTO transaksi (
+                INSERT OR REPLACE INTO transaksi (
                     tanggal, nama_nasabah, jenis_nasabah, rt_rw, jenis_sampah, berat_kg, 
                     harga_per_kg, nilai_rp, pembayaran, status_alur, source, gsheet_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -166,8 +166,9 @@ def upsert_gsheet_data(df: pd.DataFrame):
                 gsheet_id
             ))
             success_count += 1
-        except sqlite3.IntegrityError:
-            duplicate_count += 1
+        except Exception as e:
+            # If replace fails for some reason other than ID constraint
+            pass
             
     conn.commit()
     conn.close()
@@ -355,3 +356,12 @@ def upsert_withdrawal_data(df: pd.DataFrame):
     conn.commit()
     conn.close()
     return success_count, duplicate_count
+
+def clear_all_data():
+    """Wipe all transaction and withdrawal records."""
+    conn = get_connection()
+    conn.execute("DELETE FROM transaksi")
+    conn.execute("DELETE FROM penarikan")
+    conn.commit()
+    conn.close()
+    return True

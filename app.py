@@ -373,11 +373,12 @@ with tab_dash:
             dash_setoran['nilai_fmt'] = dash_setoran['nilai_rp'].apply(format_rupiah)
             
             st.dataframe(
-                dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_nasabah", "jenis_sampah", "nilai_fmt"]].rename(columns={
+                dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_nasabah", "jenis_sampah", "berat_kg", "nilai_fmt"]].rename(columns={
                     "tanggal_fmt": "Tanggal",
                     "nama_nasabah": "Nama",
                     "jenis_nasabah": "Jenis",
                     "jenis_sampah": "Sampah",
+                    "berat_kg": "Berat (kg)",
                     "nilai_fmt": "Nilai"
                 }),
                 use_container_width=True, 
@@ -560,9 +561,17 @@ with tab_settings:
             st.rerun()
             
         st.divider()
-        st.subheader("🗑️ Manajemen Data")
-        if st.button("⚠️ Bersihkan Database (Hapus Semua Transaksi)", type="secondary"):
-            st.warning("Fitur ini akan menghapus seluruh rekaman transaksi.")
-            # We could add a confirm checkbox here if needed
+        st.subheader("🗑️ Manajemen Data (Reset)")
+        st.warning("⚠️ Perhatian: Menghapus data akan mengosongkan Riwayat Setoran dan Penarikan secara permanen.")
+        
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            confirm_clear = st.checkbox("Saya yakin ingin menghapus data")
+        
+        if st.button("🚀 BERSIHKAN SEMUA DATA TRANSAKSI", type="primary", disabled=not confirm_clear):
+            from modules.database import clear_all_data
+            if clear_all_data():
+                st.success("Database berhasil dibersihkan! Silakan lakukan Sinkronisasi ulang.")
+                st.cache_data.clear(); st.rerun()
     else:
         st.info("Silakan login di sidebar untuk memodifikasi pengaturan sistem.")
