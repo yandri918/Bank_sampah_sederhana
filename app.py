@@ -11,7 +11,8 @@ from modules.database import (
     upsert_nasabah_data, get_nasabah_df,
     get_master_sampah, update_master_sampah, delete_master_sampah,
     save_transaction, save_penarikan, get_withdrawals_df, upsert_withdrawal_data,
-    get_nasabah_summary
+    get_withdrawals_df, upsert_withdrawal_data, get_master_sampah, update_master_sampah, delete_master_sampah,
+    get_nasabah_summary, get_bsu_summary
 )
 from modules.cards import generate_member_card, generate_qr_code, generate_withdrawal_receipt
 
@@ -349,62 +350,120 @@ tabs = st.tabs([
 tab_dash, tab_ops, tab_nasabah, tab_master, tab_riwayat, tab_settings = tabs
 
 with tab_dash:
-    st.header("Ringkasan Operasional")
+    st.header("📊 Dashboard Strategis Bank Sampah")
+    
+    # 0. Load Targets & BSU Data
+    target_n = int(get_setting("TARGET_NASABAH", 100))
+    target_r = int(get_setting("TARGET_RUPIAH", 10000000))
+    target_k = int(get_setting("TARGET_SAMPAH", 1000))
+    bsu_data = get_bsu_summary()
     
     if df_db.empty:
         st.warning("👋 Selamat Datang! Data masih kosong.")
         st.info("Silakan login di sidebar sebagai Admin, lalu buka tab **⚙️ Pengaturan** untuk melakukan **Sinkronisasi GSheet** pertama kali.")
     
+    # --- Row 1: Key Metrics ---
+    st.subheader("💡 Ringkasan Utama")
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     m_col1.metric("Total Anggota", f"{len(nasabah_summary_df)}")
     m_col2.metric("Total Sampah (kg)", f"{nasabah_summary_df['total_berat_kg'].sum():,.1f}" if not nasabah_summary_df.empty else "0.0")
-    m_col3.metric("Total Tabungan Kas", format_rupiah(total_setoran_all))
+    m_col3.metric("Tabungan Kas (Total)", format_rupiah(total_setoran_all))
     m_col4.metric("Saldo Kas Tersedia", format_rupiah(saldo_kas_total))
+    
+    st.divider()
+
+    # --- Row 2: Target Progress (Gauge Charts) ---
+    st.subheader("🎯 Capaian Target Tahunan")
+    st.caption("Memantau pertumbuhan menuju target resmi (KPI) Bank Sampah.")
+    
+    g_col1, g_col2, g_col3 = st.columns(3)
+    with g_col1:
+        import plotly.graph_objects as go
+        fig_n = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = len(nasabah_summary_df),
+            title = {'text': "Nasabah"},
+            gauge = {'axis': {'range': [0, target_n]}, 'bar': {'color': "darkgreen"}}
+        ))
+        fig_n.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+        st.plotly_chart(fig_n, use_container_width=True)
+        
+    with g_col2:
+        val_k = nasabah_summary_df['total_berat_kg'].sum() if not nasabah_summary_df.empty else 0
+        fig_k = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = val_k,
+            title = {'text': "Sampah (kg)"},
+            gauge = {'axis': {'range': [0, target_k]}, 'bar': {'color': "green"}}
+        ))
+        fig_k.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+        st.plotly_chart(fig_k, use_container_width=True)
+
+    with g_col3:
+        fig_r = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = total_setoran_all,
+            title = {'text': "Tabungan (Rp)"},
+            gauge = {'axis': {'range': [0, target_r]}, 'bar': {'color': "seagreen"}}
+        ))
+        fig_r.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+        st.plotly_chart(fig_r, use_container_width=True)
 
     st.divider()
+
+    # --- Row 3: BSU Analysis & Cashflow ---
+    st.subheader("📈 Analisis Wilayah & Arus Kas")
+    a_col1, a_col2 = st.columns(2)
+    
+    with a_col1:
+        st.write("**Performa per Bank Sampah Unit (BSU)**")
+        if not bsu_data.empty:
+            fig_bsu = px.bar(
+                bsu_data, x='bsu', y='total_rp', 
+                color='total_berat',
+                labels={'total_rp': 'Total Setoran (Rp)', 'bsu': 'Nama Unit'},
+                color_continuous_scale='Greens'
+            )
+            fig_bsu.update_layout(height=400)
+            st.plotly_chart(fig_bsu, use_container_width=True)
+        else:
+            st.info("Data BSU belum tersedia.")
+
+    with a_col2:
+        st.write("**Rasio Arus Kas: Setoran vs Penarikan**")
+        if total_setoran_all > 0 or total_penarikan_all > 0:
+            cash_data = pd.DataFrame({
+                "Kategori": ["Dana Tersimpan", "Dana Ditarik"],
+                "Nilai": [saldo_kas_total, total_penarikan_all]
+            })
+            fig_pie = px.pie(cash_data, names='Kategori', values='Nilai', color_discrete_sequence=['green', 'red'], hole=0.4)
+            fig_pie.update_layout(height=400)
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("Belum ada data keuangan untuk dianalisis.")
+
+    st.divider()
+    
+    # --- Row 4: Last Transactions ---
+    st.subheader("📜 Transaksi Terkini")
     d_col1, d_col2 = st.columns(2)
     with d_col1:
-        st.subheader("Setoran Terakhir")
+        st.write("**10 Setoran Terakhir**")
         if not df.empty:
-            # Format display for the dashboard table
             dash_setoran = df.head(10).copy()
             dash_setoran['tanggal_fmt'] = dash_setoran['tanggal'].dt.strftime('%d %b %Y')
             dash_setoran['nilai_fmt'] = dash_setoran['nilai_rp'].apply(format_rupiah)
-            
-            st.dataframe(
-                dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_nasabah", "jenis_sampah", "berat_kg", "nilai_fmt"]].rename(columns={
-                    "tanggal_fmt": "Tanggal",
-                    "nama_nasabah": "Nama",
-                    "jenis_nasabah": "Jenis",
-                    "jenis_sampah": "Sampah",
-                    "berat_kg": "Berat (kg)",
-                    "nilai_fmt": "Nilai"
-                }),
-                use_container_width=True, 
-                hide_index=True
-            )
+            st.dataframe(dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_sampah", "berat_kg", "nilai_fmt"]], use_container_width=True, hide_index=True)
         else:
             st.info("Tidak ada data setoran.")
             
     with d_col2:
-        st.subheader("Penarikan Terakhir")
+        st.write("**10 Penarikan Terakhir**")
         wd_history = get_withdrawals_df()
         if not wd_history.empty:
-            # Format withdrawals
             dash_tarik = wd_history.head(10).copy()
-            dash_tarik['tanggal'] = pd.to_datetime(dash_tarik['tanggal'])
-            dash_tarik['tanggal_fmt'] = dash_tarik['tanggal'].dt.strftime('%d %b %Y')
             dash_tarik['nominal_fmt'] = dash_tarik['nominal'].apply(format_rupiah)
-            
-            st.dataframe(
-                dash_tarik[["tanggal_fmt", "nama_nasabah", "nominal_fmt"]].rename(columns={
-                    "tanggal_fmt": "Tanggal",
-                    "nama_nasabah": "Nasabah",
-                    "nominal_fmt": "Nominal"
-                }),
-                use_container_width=True, 
-                hide_index=True
-            )
+            st.dataframe(dash_tarik[["tanggal", "nama_nasabah", "nominal_fmt", "metode"]], use_container_width=True, hide_index=True)
         else:
             st.info("Belum ada data penarikan.")
 
@@ -599,8 +658,32 @@ with tab_master:
         st.table(m_data[["nama_jenis", "harga_per_kg"]])
 
 with tab_settings:
-    st.header("⚙️ Konfigurasi Sistem (GSheet Sync)")
+    st.header("⚙️ Konfigurasi Sistem & Target")
     if st.session_state.authenticated:
+        # 0. ANNUAL TARGETS
+        st.subheader("🎯 Target Tahunan (KPI)")
+        st.caption("Target ini akan digunakan sebagai pembanding di Dashboard Investor.")
+        
+        t1, t2, t3 = st.columns(3)
+        with t1:
+            curr_t_n = int(get_setting("TARGET_NASABAH", 100))
+            new_t_n = st.number_input("Target Nasabah", value=curr_t_n, step=10)
+        with t2:
+            curr_t_r = int(get_setting("TARGET_RUPIAH", 10000000))
+            new_t_r = st.number_input("Target Setoran (Rp)", value=curr_t_r, step=100000)
+        with t3:
+            curr_t_k = int(get_setting("TARGET_SAMPAH", 1000))
+            new_t_k = st.number_input("Target Sampah (Kg)", value=curr_t_k, step=100)
+            
+        if st.button("💾 Simpan Target Tahunan"):
+            update_setting("TARGET_NASABAH", str(new_t_n))
+            update_setting("TARGET_RUPIAH", str(new_t_r))
+            update_setting("TARGET_SAMPAH", str(new_t_k))
+            st.success("Target diperbarui!")
+            st.rerun()
+
+        st.divider()
+        st.subheader("🔗 Sinkronisasi GSheet")
         st.caption("Kelola koneksi Google Sheets untuk sinkronisasi data eksternal.")
         
         # 1. SETORAN SYNC

@@ -379,6 +379,25 @@ def upsert_withdrawal_data(df: pd.DataFrame):
     conn.close()
     return success_count, duplicate_count
 
+def get_bsu_summary():
+    """Aggregates performance data per Bank Sampah Unit (BSU)."""
+    conn = get_connection()
+    query = """
+        SELECT 
+            n.unit as bsu,
+            COUNT(DISTINCT n.nama) as jml_nasabah,
+            IFNULL(SUM(t.berat_kg), 0) as total_berat,
+            IFNULL(SUM(t.nilai_rp), 0) as total_rp
+        FROM nasabah n
+        LEFT JOIN transaksi t ON n.nama = t.nama_nasabah
+        WHERE n.unit IS NOT NULL AND n.unit != ''
+        GROUP BY n.unit
+        ORDER BY total_rp DESC
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
 def clear_all_data():
     """Wipe all transaction and withdrawal records."""
     conn = get_connection()
