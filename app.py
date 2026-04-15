@@ -45,6 +45,14 @@ EXPECTED_FIELDS_REGISTRATION: Dict[str, Iterable[str]] = {
     "status_aturan": ("bersedia mengikuti aturan", "aturan", "syarat", "persetujuan"),
 }
 
+EXPECTED_FIELDS: Dict[str, Iterable[str]] = {
+    "nama_nasabah": ("nama", "nama lengkap", "name", "nama nasabah"),
+    "jenis_nasabah": ("nasabah", "jenis nasabah", "kategori", "kategori nasabah", "tipe"),
+    "jenis_sampah": ("jenis sampah", "kategori sampah", "sampah", "jenis"),
+    "keterangan": ("keterangan", "note", "desc"),
+    "tanggal": ("tanggal", "date", "timestamp"),
+}
+
 EXPECTED_FIELDS_WITHDRAWAL: Dict[str, Iterable[str]] = {
     "nama_nasabah": ("nama", "nasabah", "nama nasabah", "name"),
     "nominal": ("nominal", "jumlah", "penarikan", "amount", "debet"),
@@ -117,6 +125,11 @@ def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
         df["status_alur"] = df[mapped_cols["status_alur"]].fillna("Belum Diproses").astype(str)
     else:
         df["status_alur"] = "Belum Diproses"
+
+    if "jenis_nasabah" in mapped_cols:
+        df["jenis_nasabah"] = df[mapped_cols["jenis_nasabah"]].astype(str)
+    else:
+        df["jenis_nasabah"] = "-"
 
     for num_field in ("berat_kg", "harga_per_kg", "nilai_rp", "pembayaran"):
         if num_field in mapped_cols:
@@ -360,9 +373,10 @@ with tab_dash:
             dash_setoran['nilai_fmt'] = dash_setoran['nilai_rp'].apply(format_rupiah)
             
             st.dataframe(
-                dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_sampah", "nilai_fmt"]].rename(columns={
+                dash_setoran[["tanggal_fmt", "nama_nasabah", "jenis_nasabah", "jenis_sampah", "nilai_fmt"]].rename(columns={
                     "tanggal_fmt": "Tanggal",
-                    "nama_nasabah": "Nasabah",
+                    "nama_nasabah": "Nama",
+                    "jenis_nasabah": "Jenis",
                     "jenis_sampah": "Sampah",
                     "nilai_fmt": "Nilai"
                 }),
@@ -406,6 +420,14 @@ with tab_setor:
                 # Dynamic Nasabah List
                 n_df = get_nasabah_df()
                 selected_n = st.selectbox("Pilih Nasabah", options=sorted(n_df["nama"].tolist()) if not n_df.empty else ["Belum ada nasabah"])
+                
+                # Fetch Jenis from mapping if possible
+                if not n_df.empty and selected_n in n_df["nama"].values:
+                    detected_jenis = n_df[n_df["nama"] == selected_n]["jenis_nasabah"].values[0]
+                else:
+                    detected_jenis = "-"
+                
+                jenis_s = st.text_input("Kategori/Jenis (Individu, dsb)", value=detected_jenis)
             
             with s_col2:
                 # Dynamic Trash List
@@ -428,6 +450,7 @@ with tab_setor:
                     new_setoran = {
                         "tanggal": tgl_s.strftime("%Y-%m-%d %H:%M:%S"),
                         "nama_nasabah": selected_n,
+                        "jenis_nasabah": jenis_s,
                         "jenis_sampah": selected_s,
                         "berat_kg": berat_s,
                         "harga_per_kg": price_s,
@@ -477,7 +500,7 @@ with tab_riwayat:
     st.subheader("📜 Riwayat Transaksi Lengkap")
     choice = st.radio("Pilih Jenis Riwayat", ["Setoran Sampah", "Penarikan Uang"], horizontal=True)
     if choice == "Setoran Sampah":
-        st.dataframe(df_db, use_container_width=True, hide_index=True)
+        st.dataframe(df_db[["tanggal", "nama_nasabah", "jenis_nasabah", "jenis_sampah", "berat_kg", "nilai_rp"]], use_container_width=True, hide_index=True)
     else:
         st.dataframe(get_withdrawals_df(), use_container_width=True, hide_index=True)
 

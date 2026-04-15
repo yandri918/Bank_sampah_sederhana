@@ -34,6 +34,7 @@ def init_db():
         "pembayaran": "REAL",
         "status_alur": "TEXT DEFAULT 'Selesai'",
         "source": "TEXT DEFAULT 'GSheet'",
+        "jenis_nasabah": "TEXT",
         "gsheet_id": "TEXT UNIQUE"
     }
     
@@ -116,11 +117,11 @@ def save_transaction(data: dict):
     try:
         cursor.execute("""
             INSERT INTO transaksi (
-                tanggal, nama_nasabah, rt_rw, jenis_sampah, berat_kg, 
+                tanggal, nama_nasabah, jenis_nasabah, rt_rw, jenis_sampah, berat_kg, 
                 harga_per_kg, nilai_rp, pembayaran, status_alur, source, gsheet_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            data.get('tanggal'), data.get('nama_nasabah'), data.get('rt_rw'),
+            data.get('tanggal'), data.get('nama_nasabah'), data.get('jenis_nasabah'), data.get('rt_rw'),
             data.get('jenis_sampah'), data.get('berat_kg'), data.get('harga_per_kg'),
             data.get('nilai_rp'), data.get('pembayaran'), data.get('status_alur'),
             data.get('source', 'Manual'), data.get('gsheet_id')
@@ -147,12 +148,13 @@ def upsert_gsheet_data(df: pd.DataFrame):
         try:
             conn.execute("""
                 INSERT INTO transaksi (
-                    tanggal, nama_nasabah, rt_rw, jenis_sampah, berat_kg, 
+                    tanggal, nama_nasabah, jenis_nasabah, rt_rw, jenis_sampah, berat_kg, 
                     harga_per_kg, nilai_rp, pembayaran, status_alur, source, gsheet_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 row['tanggal'].strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(row['tanggal']) else None,
                 row['nama_nasabah'],
+                row.get('jenis_nasabah', '-'),
                 row.get('rt_rw', '-'),
                 row['jenis_sampah'],
                 row['berat_kg'],
