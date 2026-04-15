@@ -268,10 +268,8 @@ with st.sidebar:
                     raw = _load_gsheet_csv(_build_sheet_csv_url(reg_sheet_url))
                     added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
                     st.sidebar.success(f"Anggota: +{added}")
-                    st.rerun()
+                    st.cache_data.clear(); st.rerun()
                 except Exception as e: st.sidebar.error(f"Error: {e}")
-            else:
-                st.sidebar.warning("Masukkan URL GSheet dulu.")
 
 # --- Data Loading ---
 df_db = get_transactions_df()
