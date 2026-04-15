@@ -548,17 +548,52 @@ with tab_master:
         st.table(m_data[["nama_jenis", "harga_per_kg"]])
 
 with tab_settings:
-    st.header("⚙️ Konfigurasi Sistem")
+    st.header("⚙️ Konfigurasi Sistem (GSheet Sync)")
     if st.session_state.authenticated:
-        st.subheader("🔗 Integrasi Pendaftaran Anggota")
-        st.caption("Input URL GSheet khusus untuk data registrasi anggota saja.")
+        st.caption("Kelola koneksi Google Sheets untuk sinkronisasi data eksternal.")
         
-        new_reg_url = st.text_input("GSheet Registrasi", value=reg_sheet_url)
+        # 1. SETORAN SYNC
+        st.subheader("1. Data Setoran (Transaksi)")
+        s_url = st.text_input("GSheet Setoran/Transaksi", value=sheet_url)
+        if st.button("🚀 SINKRONISASI SETORAN SEKARANG", use_container_width=True):
+            with st.spinner("Sinkronisasi setoran..."):
+                try:
+                    raw = _load_gsheet_csv(_build_sheet_csv_url(s_url))
+                    added, dups = upsert_gsheet_data(_normalize_dataframe(raw))
+                    st.success(f"Berhasil Sinkron: {added} data ditambahkan/diperbarui.")
+                    update_setting("BANK_SAMPAH_SHEET_URL", s_url)
+                    st.cache_data.clear(); st.rerun()
+                except Exception as e: st.error(f"Error Sinkron Setoran: {e}")
         
-        if st.button("Simpan Konfigurasi"):
-            update_setting("BANK_SAMPAH_REGISTRATION_URL", new_reg_url)
-            st.success("Konfigurasi disimpan!")
-            st.rerun()
+        st.divider()
+        
+        # 2. NASABAH SYNC
+        st.subheader("2. Data Pendaftaran Anggota")
+        r_url_input = st.text_input("GSheet Pendaftaran Nasabah", value=reg_sheet_url)
+        if st.button("🚀 SINKRONISASI ANGGOTA SEKARANG", use_container_width=True):
+            with st.spinner("Sinkronisasi anggota..."):
+                try:
+                    raw = _load_gsheet_csv(_build_sheet_csv_url(r_url_input))
+                    added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
+                    st.success(f"Berhasil Sinkron: {added} anggota baru.")
+                    update_setting("BANK_SAMPAH_REGISTRATION_URL", r_url_input)
+                    st.rerun()
+                except Exception as e: st.error(f"Error Sinkron Anggota: {e}")
+        
+        st.divider()
+
+        # 3. PENARIKAN SYNC
+        st.subheader("3. Data Penarikan Saldo")
+        w_url_input = st.text_input("GSheet Riwayat Penarikan", value=withdrawal_sheet_url)
+        if st.button("🚀 SINKRONISASI PENARIKAN SEKARANG", use_container_width=True):
+            with st.spinner("Sinkronisasi penarikan..."):
+                try:
+                    raw = _load_gsheet_csv(_build_sheet_csv_url(w_url_input))
+                    added, dups = upsert_withdrawal_data(_normalize_withdrawal_dataframe(raw))
+                    st.success(f"Berhasil Sinkron: {added} data penarikan.")
+                    update_setting("BANK_SAMPAH_WITHDRAWAL_URL", w_url_input)
+                    st.cache_data.clear(); st.rerun()
+                except Exception as e: st.error(f"Error Sinkron Penarikan: {e}")
             
         st.divider()
         st.subheader("🗑️ Manajemen Data (Reset)")
