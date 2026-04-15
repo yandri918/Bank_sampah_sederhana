@@ -92,7 +92,7 @@ def generate_official_report_pdf(data):
     pdf.set_font('Arial', 'BU', 11)
     pdf.cell(0, 10, '( ........................................ )', 0, 1, 'C')
 
-    return pdf.output()
+    return bytes(pdf.output())
 
 def generate_funding_proposal_pdf(data):
     """
@@ -126,4 +126,4 @@ def generate_funding_proposal_pdf(data):
         pdf.multi_cell(0, 7, content)
         pdf.ln(5)
         
-    return pdf.output()
+    return bytes(pdf.output())
