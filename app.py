@@ -337,14 +337,13 @@ saldo_kas_total = total_setoran_all - total_penarikan_all
 # --- Tabs Implementation ---
 tabs = st.tabs([
     "📊 Dashboard", 
-    "➕ Catat Setoran", 
-    "💸 Catat Penarikan", 
-    "📝 Riwayat",
-    "👥 Database Nasabah", 
+    "🏦 Operasional", 
+    "👥 Database Anggota", 
     "📦 Data Sampah",
+    "📜 Riwayat",
     "⚙️ Pengaturan"
 ])
-tab_dash, tab_setor, tab_tarik, tab_riwayat, tab_nasabah, tab_master, tab_settings = tabs
+tab_dash, tab_ops, tab_nasabah, tab_master, tab_riwayat, tab_settings = tabs
 
 with tab_dash:
     st.header("Ringkasan Operasional")
@@ -406,93 +405,98 @@ with tab_dash:
         else:
             st.info("Belum ada data penarikan.")
 
-with tab_setor:
-    st.header("➕ Pencatatan Setoran Sampah")
+with tab_ops:
+    st.header("🏦 Pusat Operasional Hybrid")
+    
+    # Check Auth
     if not st.session_state.authenticated:
-        st.warning("Mohon login untuk mencatat transaksi.")
+        st.warning("Mohon login sebagai Admin/Petugas untuk mengakses menu operasional.")
     else:
-        with st.form("form_setoran_manual"):
-            s_col1, s_col2 = st.columns(2)
-            with s_col1:
-                tgl_s = st.date_input("Tanggal", value=datetime.now())
-                # Dynamic Nasabah List
-                n_df = get_nasabah_df()
-                selected_n = st.selectbox("Pilih Nasabah", options=sorted(n_df["nama"].tolist()) if not n_df.empty else ["Belum ada nasabah"])
-                
-                # Fetch Jenis from mapping if possible
-                if not n_df.empty and selected_n in n_df["nama"].values:
-                    detected_jenis = n_df[n_df["nama"] == selected_n]["jenis_nasabah"].values[0]
-                else:
-                    detected_jenis = "-"
-                
-                jenis_s = st.text_input("Kategori/Jenis (Individu, dsb)", value=detected_jenis)
+        # Layout: QR Code on the left, Forms on the right
+        o_col1, o_col2 = st.columns([1, 2])
+        
+        with o_col1:
+            st.subheader("📲 Akses GForm")
+            st.info("Petugas lapangan bisa scan QR ini untuk mulai input via HP.")
             
-            with s_col2:
-                # Dynamic Trash List
-                m_df = get_master_sampah()
-                selected_s = st.selectbox("Jenis Sampah", options=m_df["nama_jenis"].tolist() if not m_df.empty else ["Belum ada harga"])
-                berat_s = st.number_input("Berat (kg)", min_value=0.1, step=0.1)
+            # Form URL provided by user
+            form_url = "https://docs.google.com/forms/d/e/1FAIpQLSdXSuFX_RaEspHEZ7HLsdQ4cGHYJUO4IUQrE8qk1DexHJ9-HA/viewform"
             
-            if not m_df.empty and selected_s in m_df["nama_jenis"].values:
-                price_s = m_df[m_df["nama_jenis"] == selected_s]["harga_per_kg"].values[0]
-                total_val = float(berat_s * price_s)
-                st.info(f"💰 Nilai Tabungan: **{format_rupiah(total_val)}** ({format_rupiah(price_s)}/kg)")
-            else:
-                total_val = 0.0
-                st.error("Silakan atur harga sampah di tab 'Data Sampah' terlebih dahulu.")
-                
-            if st.form_submit_button("Simpan Setoran", use_container_width=True, type="primary"):
-                if n_df.empty or m_df.empty:
-                    st.error("Data Nasabah atau Harga Sampah belum ada.")
-                else:
-                    new_setoran = {
-                        "tanggal": tgl_s.strftime("%Y-%m-%d %H:%M:%S"),
-                        "nama_nasabah": selected_n,
-                        "jenis_nasabah": jenis_s,
-                        "jenis_sampah": selected_s,
-                        "berat_kg": berat_s,
-                        "harga_per_kg": price_s,
-                        "nilai_rp": total_val,
-                        "pembayaran": 0,
-                        "status_alur": "Selesai",
-                        "source": "Manual"
-                    }
-                    if save_transaction(new_setoran):
-                        st.success("Setoran berhasil dicatat!")
-                        st.cache_data.clear(); st.rerun()
+            qr_bytes = generate_qr_code(form_url)
+            st.image(qr_bytes, caption="Scan untuk Form Setoran", use_container_width=True)
+            st.link_button("Buka Form di Browser", form_url, use_container_width=True)
 
-with tab_tarik:
-    st.header("💸 Pencatatan Penarikan Saldo")
-    if not st.session_state.authenticated:
-        st.warning("Mohon login untuk memproses penarikan.")
-    else:
-        with st.form("form_penarikan_manual"):
-            tgl_t = st.date_input("Tanggal", value=datetime.now())
-            # Fetch summary for real-time balance check
-            summary_for_wd = get_nasabah_summary()
-            selected_tn = st.selectbox("Pilih Nasabah", options=summary_for_wd["nama_nasabah"].tolist())
+        with o_col2:
+            mode = st.radio("Pilih Mode Input Manual", ["➕ Setoran Sampah", "💸 Penarikan Saldo"], horizontal=True)
             
-            current_s = summary_for_wd[summary_for_wd["nama_nasabah"] == selected_tn]["saldo"].values[0]
-            st.write(f"Saldo Tabungan saat ini: **{format_rupiah(current_s)}**")
+            if mode == "➕ Setoran Sampah":
+                st.subheader("Pencatatan Setoran")
+                with st.form("form_setoran_hybrid"):
+                    s_col1, s_col2 = st.columns(2)
+                    with s_col1:
+                        tgl_s = st.date_input("Tanggal", value=datetime.now())
+                        n_df = get_nasabah_df()
+                        selected_n = st.selectbox("Nasabah", options=sorted(n_df["nama"].tolist()) if not n_df.empty else ["Belum ada nasabah"])
+                        
+                        if not n_df.empty and selected_n in n_df["nama"].values:
+                            detected_jenis = n_df[n_df["nama"] == selected_n]["jenis_nasabah"].values[0]
+                        else:
+                            detected_jenis = "-"
+                        jenis_s = st.text_input("Kategori", value=detected_jenis)
+                    
+                    with s_col2:
+                        m_df = get_master_sampah()
+                        selected_s = st.selectbox("Jenis Sampah", options=m_df["nama_jenis"].tolist() if not m_df.empty else ["-"])
+                        berat_s = st.number_input("Berat (kg)", min_value=0.1, step=0.1)
+                        
+                        if not m_df.empty and selected_s in m_df["nama_jenis"].values:
+                            price_s = m_df[m_df["nama_jenis"] == selected_s]["harga_per_kg"].values[0]
+                            total_val = float(berat_s * price_s)
+                            st.caption(f"Estimasi Nilai: {format_rupiah(total_val)}")
+                        else:
+                            price_s = 0; total_val = 0
+                    
+                    if st.form_submit_button("💾 SIMPAN SETORAN", use_container_width=True, type="primary"):
+                        if n_df.empty:
+                            st.error("Data Anggota belum tersedia.")
+                        else:
+                            new_data = {
+                                "tanggal": tgl_s.strftime("%Y-%m-%d %H:%M:%S"),
+                                "nama_nasabah": selected_n,
+                                "jenis_nasabah": jenis_s,
+                                "jenis_sampah": selected_s,
+                                "berat_kg": berat_s,
+                                "harga_per_kg": price_s,
+                                "nilai_rp": total_val,
+                                "pembayaran": 0,
+                                "status_alur": "Selesai",
+                                "source": "Manual"
+                            }
+                            if save_transaction(new_data):
+                                st.success("Setoran berhasil disimpan!")
+                                st.cache_data.clear(); st.rerun()
             
-            nom_t = st.number_input("Nominal Penarikan (Rp)", min_value=0, step=1000)
-            ket_t = st.text_input("Keterangan", placeholder="Contoh: Keperluan dapur")
-            
-            if st.form_submit_button("Proses Penarikan", use_container_width=True, type="primary"):
-                if nom_t > current_s:
-                    st.error("Gagal: Saldo tidak mencukupi untuk nominal penarikan tersebut.")
-                elif nom_t <= 0:
-                    st.warning("Masukkan nominal yang valid.")
-                else:
-                    wd_data = {
-                        "tanggal": tgl_t.strftime("%Y-%m-%d %H:%M:%S"),
-                        "nama_nasabah": selected_tn,
-                        "nominal": nom_t,
-                        "keterangan": ket_t
-                    }
-                    if save_penarikan(wd_data):
-                        st.success(f"Berhasil menarik {format_rupiah(nom_t)}!")
-                        st.cache_data.clear(); st.rerun()
+            else:
+                st.subheader("Pencatatan Penarikan")
+                with st.form("form_tarik_hybrid"):
+                    tgl_p = st.date_input("Tanggal", value=datetime.now())
+                    summary_for_wd = get_nasabah_summary()
+                    selected_tn = st.selectbox("Pilih Nasabah", options=summary_for_wd["nama_nasabah"].tolist())
+                    
+                    current_s = summary_for_wd[summary_for_wd["nama_nasabah"] == selected_tn]["saldo"].values[0]
+                    st.write(f"Saldo saat ini: **{format_rupiah(current_s)}**")
+                    
+                    nom_p = st.number_input("Nominal (Rp)", min_value=0, step=1000)
+                    ket_p = st.text_input("Keterangan", value="Tarik Tunai")
+                    
+                    if st.form_submit_button("💸 PROSES PENARIKAN", use_container_width=True, type="primary"):
+                        if nom_p > current_s:
+                            st.error("Gagal: Saldo tidak mencukupi.")
+                        else:
+                            new_p = {"tanggal": tgl_p.strftime("%Y-%m-%d %H:%M:%S"), "nama_nasabah": selected_tn, "nominal": nom_p, "keterangan": ket_p}
+                            if save_penarikan(new_p):
+                                st.success("Penarikan berhasil dicatat!")
+                                st.cache_data.clear(); st.rerun()
 
 with tab_riwayat:
     st.subheader("📜 Riwayat Transaksi Lengkap")
