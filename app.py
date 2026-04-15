@@ -117,28 +117,43 @@ if 'authenticated' not in st.session_state:
 with st.sidebar:
     st.header("🔑 Akses Sistem")
     if not st.session_state.authenticated:
-        with st.form("login_form"):
-            user = st.text_input("Username")
-            pw = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Masuk")
-            if submitted:
-                # Simple check, if no users exists, allow first user as admin
-                # For demo purposes, we'll create a default admin if none exists
-                # In production, this would be more secure
-                res = verify_user(user, pw)
-                if res:
-                    st.session_state.authenticated = True
-                    st.session_state.user = res
-                    st.rerun()
-                elif user == "admin" and pw == "admin": # Default fallback
-                    create_user("admin", "admin", "Administrator", "admin")
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Login gagal")
+        auth_tab1, auth_tab2 = st.tabs(["Masuk", "Daftar"])
+        
+        with auth_tab1:
+            with st.form("login_form"):
+                user = st.text_input("Username")
+                pw = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Masuk", use_container_width=True)
+                if submitted:
+                    res = verify_user(user, pw)
+                    if res:
+                        st.session_state.authenticated = True
+                        st.session_state.user = res
+                        st.rerun()
+                    elif user == "admin" and pw == "admin":
+                        create_user("admin", "admin", "Administrator", "admin")
+                        st.session_state.authenticated = True
+                        st.rerun()
+                    else:
+                        st.error("Username atau password salah")
+        
+        with auth_tab2:
+            with st.form("register_form"):
+                new_user = st.text_input("Username Baru")
+                new_pw = st.text_input("Password Baru", type="password")
+                full_name = st.text_input("Nama Lengkap")
+                reg_submitted = st.form_submit_button("Daftar Sekarang", use_container_width=True)
+                if reg_submitted:
+                    if new_user and new_pw and full_name:
+                        if create_user(new_user, new_pw, full_name):
+                            st.success("Akun berhasil dibuat! Silakan masuk.")
+                        else:
+                            st.error("Username mungkin sudah digunakan.")
+                    else:
+                        st.warning("Mohon isi semua field.")
     else:
         st.success(f"Halo, {st.session_state.user[3] if len(st.session_state.user) > 3 else 'User'}")
-        if st.button("Keluar"):
+        if st.button("Keluar", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
 
@@ -183,17 +198,27 @@ if not df_db.empty:
     with st.sidebar:
         st.divider()
         st.header("📅 Filter Data")
-        start_date, end_date = st.date_input(
+        # Ensure we have a valid list for date_input
+        date_range = st.date_input(
             "Rentang Tanggal",
             value=[min_date, max_date],
             min_value=min_date,
             max_value=max_date
         )
+        
+        if isinstance(date_range, list) and len(date_range) == 2:
+            start_date, end_date = date_range
+        else:
+            start_date, end_date = min_date, max_date
     
     # Apply filter
     df = df_db[(df_db['tanggal'].dt.date >= start_date) & (df_db['tanggal'].dt.date <= end_date)].copy()
 else:
-    st.warning("Data belum tersedia. Silakan lakukan sinkronisasi di sidebar (memerlukan login).")
+    df = pd.DataFrame()
+    st.warning("Data belum tersedia. Silakan lakukan sinkronisasi di sidebar (memerlukan login admin).")
+
+if df.empty:
+    st.info("Tidak ada data untuk rentang waktu ini atau database kosong.")
     st.stop()
 
 # --- Calculations & Metrics ---
