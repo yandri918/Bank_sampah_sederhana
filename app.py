@@ -254,44 +254,22 @@ with st.sidebar:
     else:
         default_url = db_url
     
-    sheet_url = st.text_input("GSheet Transaksi", value=default_url)
-    reg_sheet_url = st.text_input("GSheet Nasabah", value=reg_url)
-    withdrawal_sheet_url = st.text_input("GSheet Penarikan", value=wd_url)
+    sheet_url = get_setting("BANK_SAMPAH_SHEET_URL", provided_url) # Still kept in code for legacy but hidden
+    reg_sheet_url = st.text_input("Link GSheet Pendaftaran Nasabah", value=reg_url)
+    withdrawal_sheet_url = get_setting("BANK_SAMPAH_WITHDRAWAL_URL", "")
     
     if st.session_state.authenticated:
         st.divider()
-        st.caption("🔄 SINKRONISASI GSHEET (OPSIONAL)")
+        st.caption("🔄 SINKRONISASI GSHEET NASABAH")
         
-        sync_cols = st.columns(3)
-        with sync_cols[0]:
-            if st.button("SETORAN", use_container_width=True):
-                with st.spinner("Wait..."):
-                    try:
-                        raw = _load_gsheet_csv(_build_sheet_csv_url(sheet_url))
-                        added, dups = upsert_gsheet_data(_normalize_dataframe(raw))
-                        st.sidebar.success(f"Setoran: +{added}")
-                        st.cache_data.clear(); st.rerun()
-                    except Exception as e: st.sidebar.error(f"Error: {e}")
-        
-        with sync_cols[1]:
-            if st.button("NASABAH", use_container_width=True):
-                with st.spinner("Wait..."):
-                    try:
-                        raw = _load_gsheet_csv(_build_sheet_csv_url(reg_sheet_url))
-                        added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
-                        st.sidebar.success(f"Nasabah: +{added}")
-                        st.rerun()
-                    except Exception as e: st.sidebar.error(f"Error: {e}")
-
-        with sync_cols[2]:
-            if st.button("PENARIKAN", use_container_width=True):
-                with st.spinner("Wait..."):
-                    try:
-                        raw = _load_gsheet_csv(_build_sheet_csv_url(withdrawal_sheet_url))
-                        added, dups = upsert_withdrawal_data(_normalize_withdrawal_dataframe(raw))
-                        st.sidebar.success(f"Penarikan: +{added}")
-                        st.cache_data.clear(); st.rerun()
-                    except Exception as e: st.sidebar.error(f"Error: {e}")
+        if st.button("🚀 SYNC DATA ANGGOTA", use_container_width=True, type="primary"):
+            with st.spinner("Sinkronisasi anggota..."):
+                try:
+                    raw = _load_gsheet_csv(_build_sheet_csv_url(reg_sheet_url))
+                    added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
+                    st.sidebar.success(f"Anggota: +{added}")
+                    st.rerun()
+                except Exception as e: st.sidebar.error(f"Error: {e}")
             else:
                 st.sidebar.warning("Masukkan URL GSheet dulu.")
 
@@ -517,18 +495,14 @@ with tab_master:
 with tab_settings:
     st.header("⚙️ Konfigurasi Sistem")
     if st.session_state.authenticated:
-        st.subheader("🔗 Google Sheets Integration (Hybrid)")
-        st.caption("Gunakan ini untuk sinkronisasi data dari form eksternal.")
+        st.subheader("🔗 Integrasi Pendaftaran Anggota")
+        st.caption("Input URL GSheet khusus untuk data registrasi anggota saja.")
         
-        s_url = st.text_input("GSheet Transaksi (Setoran)", value=sheet_url)
-        r_url = st.text_input("GSheet Nasabah (Registrasi)", value=reg_sheet_url)
-        w_url = st.text_input("GSheet Penarikan", value=withdrawal_sheet_url)
+        new_reg_url = st.text_input("GSheet Registrasi", value=reg_sheet_url)
         
-        if st.button("Simpan Semua Konfigurasi"):
-            update_setting("BANK_SAMPAH_SHEET_URL", s_url)
-            update_setting("BANK_SAMPAH_REGISTRATION_URL", r_url)
-            update_setting("BANK_SAMPAH_WITHDRAWAL_URL", w_url)
-            st.success("Konfigurasi URL berhasil disimpan!")
+        if st.button("Simpan Konfigurasi"):
+            update_setting("BANK_SAMPAH_REGISTRATION_URL", new_reg_url)
+            st.success("Konfigurasi disimpan!")
             st.rerun()
             
         st.divider()
