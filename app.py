@@ -176,11 +176,15 @@ with st.sidebar:
                 with st.spinner("Mensinkronkan data..."):
                     try:
                         csv_url_sync = _build_sheet_csv_url(sheet_url)
-                        raw_data = _load_gsheet_csv(csv_url_sync)
-                        norm_df = _normalize_dataframe(raw_data)
-                        added, dups = upsert_gsheet_data(norm_df)
-                        st.sidebar.success(f"Berhasil: {added} data baru, {dups} duplikat diabaikan.")
-                        st.cache_data.clear()
+                        if not csv_url_sync:
+                            st.sidebar.error("Format URL Google Sheet tidak valid. Pastikan URL berisi '/spreadsheets/d/<ID>/'.")
+                        else:
+                            raw_data = _load_gsheet_csv(csv_url_sync)
+                            norm_df = _normalize_dataframe(raw_data)
+                            added, dups = upsert_gsheet_data(norm_df)
+                            st.sidebar.success(f"Berhasil: {added} data baru, {dups} duplikat diabaikan.")
+                            st.cache_data.clear()
+                            st.rerun()
                     except Exception as e:
                         st.sidebar.error(f"Gagal sinkron: {e}")
             else:
