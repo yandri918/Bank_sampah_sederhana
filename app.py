@@ -131,6 +131,9 @@ def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
         else:
             df[num_field] = 0.0
 
+    if (df["nilai_rp"] <= 0).all() and (df["berat_kg"] > 0).any() and (df["harga_per_kg"] > 0).any():
+        df["nilai_rp"] = df["berat_kg"] * df["harga_per_kg"]
+
     return df
 
 def _normalize_withdrawal_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
@@ -155,13 +158,6 @@ def _normalize_withdrawal_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
         else:
             df[field_name] = 0.0 if field_name == "nominal" else "-"
             
-    return df
-        else:
-            df[num_field] = 0.0
-
-    if (df["nilai_rp"] <= 0).all() and (df["berat_kg"] > 0).any() and (df["harga_per_kg"] > 0).any():
-        df["nilai_rp"] = df["berat_kg"] * df["harga_per_kg"]
-
     return df
 
 
