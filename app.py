@@ -8,7 +8,10 @@ import streamlit as st
 from modules.database import (
     init_db, upsert_gsheet_data, get_transactions_df, 
     verify_user, create_user, get_setting, update_setting,
-    upsert_nasabah_data, get_nasabah_df
+    upsert_nasabah_data, get_nasabah_df,
+    get_master_sampah, update_master_sampah, delete_master_sampah,
+    save_transaction, save_penarikan, get_withdrawals_df, upsert_withdrawal_data,
+    get_nasabah_summary
 )
 
 # Initialize Database
@@ -40,7 +43,16 @@ EXPECTED_FIELDS_REGISTRATION: Dict[str, Iterable[str]] = {
     "unit": ("bank sampah unit", "unit"),
     "jenis_nasabah": ("jenis nasabah", "kategori nasabah"),
     "status_aturan": ("bersedia mengikuti aturan", "aturan"),
+EXPECTED_FIELDS_WITHDRAWAL: Dict[str, Iterable[str]] = {
+    "nama_nasabah": ("nama", "nasabah", "nama nasabah", "name"),
+    "nominal": ("nominal", "jumlah", "penarikan", "amount", "debet"),
+    "keterangan": ("keterangan", "note", "desc"),
+    "tanggal": ("tanggal", "date", "timestamp"),
 }
+
+def format_rupiah(amount: float) -> str:
+    """Professional Rupiah formatting."""
+    return f"Rp {amount:,.0f}".replace(",", ".")
 
 
 def _slugify(text: str) -> str:
@@ -113,7 +125,29 @@ def _normalize_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
                 .str.replace(",", ".", regex=False)
                 .str.replace(r"[^0-9.\-]", "", regex=True)
             )
-            df[num_field] = pd.to_numeric(parsed, errors="coerce").fillna(0.0)
+            df[num_field] = pd.to_numeric(parsed, errors="coerce").fillna(0.0)def _normalize_withdrawal_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
+    df = raw_df.copy()
+    mapped_cols = {}
+    for field_name, aliases in EXPECTED_FIELDS_WITHDRAWAL.items():
+        found = _find_col(df.columns, aliases)
+        if found: mapped_cols[field_name] = found
+
+    for field_name in EXPECTED_FIELDS_WITHDRAWAL.keys():
+        if field_name in mapped_cols:
+            if field_name == "nominal":
+                parsed = (df[mapped_cols[field_name]].astype(str)
+                         .str.replace(".", "", regex=False)
+                         .str.replace(",", ".", regex=False)
+                         .str.replace(r"[^0-9.\-]", "", regex=True))
+                df[field_name] = pd.to_numeric(parsed, errors="coerce").fillna(0.0)
+            elif field_name == "tanggal":
+                df[field_name] = pd.to_datetime(df[mapped_cols[field_name]], errors="coerce")
+            else:
+                df[field_name] = df[mapped_cols[field_name]].astype(str)
+        else:
+            df[field_name] = 0.0 if field_name == "nominal" else "-"
+            
+    return df
         else:
             df[num_field] = 0.0
 
@@ -209,61 +243,51 @@ with st.sidebar:
     provided_url = "https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0"
     db_url = get_setting("BANK_SAMPAH_SHEET_URL")
     reg_url = get_setting("BANK_SAMPAH_REGISTRATION_URL", "")
+    wd_url = get_setting("BANK_SAMPAH_WITHDRAWAL_URL", "")
     
     if not db_url or "sheet_id" in db_url:
         default_url = st.secrets.get("BANK_SAMPAH_SHEET_URL", provided_url)
     else:
         default_url = db_url
     
-    sheet_url = st.text_input(
-        "URL Google Sheet Transaksi",
-        value=default_url,
-        placeholder="https://docs.google.com/spreadsheets/d/<sheet_id>/edit#gid=0",
-    )
-    
-    reg_sheet_url = st.text_input(
-        "URL Google Sheet Pendaftaran",
-        value=reg_url,
-        placeholder="https://docs.google.com/spreadsheets/d/<sheet_id>/edit#gid=0",
-    )
+    sheet_url = st.text_input("GSheet Transaksi", value=default_url)
+    reg_sheet_url = st.text_input("GSheet Nasabah", value=reg_url)
+    withdrawal_sheet_url = st.text_input("GSheet Penarikan", value=wd_url)
     
     if st.session_state.authenticated:
-        st.info("💡 Klik tombol di bawah untuk sinkronisasi.")
-        col_sync1, col_sync2 = st.columns(2)
-        with col_sync1:
-            if st.button("🚀 SYNC TRANSAKSI", use_container_width=True, type="primary"):
-                if sheet_url:
-                    with st.spinner("Sinkron Transaksi..."):
-                        try:
-                            csv_url_sync = _build_sheet_csv_url(sheet_url)
-                            if not csv_url_sync:
-                                st.sidebar.error("Link Sheet Transaksi tidak valid.")
-                            else:
-                                raw_data = _load_gsheet_csv(csv_url_sync)
-                                norm_df = _normalize_dataframe(raw_data)
-                                added, dups = upsert_gsheet_data(norm_df)
-                                st.sidebar.success(f"Transaksi: +{added} baru")
-                                st.cache_data.clear()
-                                st.rerun()
-                        except Exception as e:
-                            st.sidebar.error(f"Gagal: {e}")
+        st.divider()
+        st.caption("🔄 SINKRONISASI GSHEET (OPSIONAL)")
         
-        with col_sync2:
-            if st.button("👥 SYNC NASABAH", use_container_width=True):
-                if reg_sheet_url:
-                    with st.spinner("Sinkron Nasabah..."):
-                        try:
-                            csv_url_reg = _build_sheet_csv_url(reg_sheet_url)
-                            if not csv_url_reg:
-                                st.sidebar.error("Link Sheet Pendaftaran tidak valid.")
-                            else:
-                                raw_reg = _load_gsheet_csv(csv_url_reg)
-                                norm_reg = _normalize_nasabah_dataframe(raw_reg)
-                                added, updated = upsert_nasabah_data(norm_reg)
-                                st.sidebar.success(f"Nasabah: +{added} baru, {updated} update")
-                                st.rerun()
-                        except Exception as e:
-                            st.sidebar.error(f"Gagal: {e}")
+        sync_cols = st.columns(3)
+        with sync_cols[0]:
+            if st.button("SETORAN", use_container_width=True):
+                with st.spinner("Wait..."):
+                    try:
+                        raw = _load_gsheet_csv(_build_sheet_csv_url(sheet_url))
+                        added, dups = upsert_gsheet_data(_normalize_dataframe(raw))
+                        st.sidebar.success(f"Setoran: +{added}")
+                        st.cache_data.clear(); st.rerun()
+                    except Exception as e: st.sidebar.error(f"Error: {e}")
+        
+        with sync_cols[1]:
+            if st.button("NASABAH", use_container_width=True):
+                with st.spinner("Wait..."):
+                    try:
+                        raw = _load_gsheet_csv(_build_sheet_csv_url(reg_sheet_url))
+                        added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
+                        st.sidebar.success(f"Nasabah: +{added}")
+                        st.rerun()
+                    except Exception as e: st.sidebar.error(f"Error: {e}")
+
+        with sync_cols[2]:
+            if st.button("PENARIKAN", use_container_width=True):
+                with st.spinner("Wait..."):
+                    try:
+                        raw = _load_gsheet_csv(_build_sheet_csv_url(withdrawal_sheet_url))
+                        added, dups = upsert_withdrawal_data(_normalize_withdrawal_dataframe(raw))
+                        st.sidebar.success(f"Penarikan: +{added}")
+                        st.cache_data.clear(); st.rerun()
+                    except Exception as e: st.sidebar.error(f"Error: {e}")
             else:
                 st.sidebar.warning("Masukkan URL GSheet dulu.")
 
@@ -317,143 +341,196 @@ if df.empty:
     st.stop()
 
 # --- Calculations & Metrics ---
-total_nasabah = int(df["nama_nasabah"].nunique())
-total_berat = float(df["berat_kg"].sum())
-total_pendapatan = float(df["nilai_rp"].sum())
-total_pengeluaran = float(df["pembayaran"].sum())
-saldo = total_pendapatan - total_pengeluaran
+# We calculate this early so dashboard metrics are accurate
+nasabah_summary_df = get_nasabah_summary()
+total_setoran_all = nasabah_summary_df['total_setoran'].sum()
+total_penarikan_all = nasabah_summary_df['total_penarikan'].sum()
+saldo_kas_total = total_setoran_all - total_penarikan_all
 
-# Simple Trend (MoM)
-current_month = datetime.now().strftime('%Y-%m')
-prev_month = (datetime.now() - pd.DateOffset(months=1)).strftime('%Y-%m')
+# --- Tabs Implementation ---
+tabs = st.tabs([
+    "📊 Dashboard", 
+    "➕ Catat Setoran", 
+    "💸 Catat Penarikan", 
+    "📝 Riwayat",
+    "👥 Database Nasabah", 
+    "📦 Data Sampah",
+    "⚙️ Pengaturan"
+])
+tab_dash, tab_setor, tab_tarik, tab_riwayat, tab_nasabah, tab_master, tab_settings = tabs
 
-def get_monthly_sum(dataframe, month_str, col):
-    return dataframe[dataframe['tanggal'].dt.strftime('%Y-%m') == month_str][col].sum()
+with tab_dash:
+    st.header("Ringkasan Operasional")
+    
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    m_col1.metric("Total Anggota", f"{len(nasabah_summary_df)}")
+    m_col2.metric("Total Sampah (kg)", f"{nasabah_summary_df['total_berat_kg'].sum():,.1f}")
+    m_col3.metric("Total Tabungan Kas", format_rupiah(total_setoran_all))
+    m_col4.metric("Saldo Kas Tersedia", format_rupiah(saldo_kas_total))
 
-berat_delta = get_monthly_sum(df, current_month, 'berat_kg') - get_monthly_sum(df, prev_month, 'berat_kg')
-pendapatan_delta = get_monthly_sum(df, current_month, 'nilai_rp') - get_monthly_sum(df, prev_month, 'nilai_rp')
+    st.divider()
+    d_col1, d_col2 = st.columns(2)
+    with d_col1:
+        st.subheader("Setoran Terakhir")
+        st.dataframe(df_db.head(10)[["tanggal", "nama_nasabah", "jenis_sampah", "nilai_rp"]], use_container_width=True, hide_index=True)
+    with d_col2:
+        st.subheader("Penarikan Terakhir")
+        wd_history = get_withdrawals_df()
+        if not wd_history.empty:
+            st.dataframe(wd_history.head(10)[["tanggal", "nama_nasabah", "nominal"]], use_container_width=True, hide_index=True)
+        else:
+            st.info("Belum ada data penarikan saldo.")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Nasabah", f"{total_nasabah}")
-c2.metric("Total Berat", f"{total_berat:,.1f} kg", delta=f"{berat_delta:,.1f} kg (Bulan ini)")
-c3.metric("Pendapatan", f"Rp {total_pendapatan:,.0f}", delta=f"Rp {pendapatan_delta:,.0f} (Bulan ini)")
-c4.metric("Saldo", f"Rp {saldo:,.0f}")
+with tab_setor:
+    st.header("➕ Pencatatan Setoran Sampah")
+    if not st.session_state.authenticated:
+        st.warning("Mohon login untuk mencatat transaksi.")
+    else:
+        with st.form("form_setoran_manual"):
+            s_col1, s_col2 = st.columns(2)
+            with s_col1:
+                tgl_s = st.date_input("Tanggal", value=datetime.now())
+                # Dynamic Nasabah List
+                n_df = get_nasabah_df()
+                selected_n = st.selectbox("Pilih Nasabah", options=sorted(n_df["nama"].tolist()) if not n_df.empty else ["Belum ada nasabah"])
+            
+            with s_col2:
+                # Dynamic Trash List
+                m_df = get_master_sampah()
+                selected_s = st.selectbox("Jenis Sampah", options=m_df["nama_jenis"].tolist() if not m_df.empty else ["Belum ada harga"])
+                berat_s = st.number_input("Berat (kg)", min_value=0.1, step=0.1)
+            
+            if not m_df.empty and selected_s in m_df["nama_jenis"].values:
+                price_s = m_df[m_df["nama_jenis"] == selected_s]["harga_per_kg"].values[0]
+                total_val = float(berat_s * price_s)
+                st.info(f"💰 Nilai Tabungan: **{format_rupiah(total_val)}** ({format_rupiah(price_s)}/kg)")
+            else:
+                total_val = 0.0
+                st.error("Silakan atur harga sampah di tab 'Data Sampah' terlebih dahulu.")
+                
+            if st.form_submit_button("Simpan Setoran", use_container_width=True, type="primary"):
+                if n_df.empty or m_df.empty:
+                    st.error("Data Nasabah atau Harga Sampah belum ada.")
+                else:
+                    new_setoran = {
+                        "tanggal": tgl_s.strftime("%Y-%m-%d %H:%M:%S"),
+                        "nama_nasabah": selected_n,
+                        "jenis_sampah": selected_s,
+                        "berat_kg": berat_s,
+                        "harga_per_kg": price_s,
+                        "nilai_rp": total_val,
+                        "pembayaran": 0,
+                        "status_alur": "Selesai",
+                        "source": "Manual"
+                    }
+                    if save_transaction(new_setoran):
+                        st.success("Setoran berhasil dicatat!")
+                        st.cache_data.clear(); st.rerun()
 
-tab_nasabah, tab_alur, tab_pembukuan, tab_keuangan, tab_raw, tab_settings = st.tabs(
-    ["Database Nasabah", "Alur Sampah", "Pembukuan", "Keuangan", "Data Mentah", "⚙️ Pengaturan"]
-)
+with tab_tarik:
+    st.header("💸 Pencatatan Penarikan Saldo")
+    if not st.session_state.authenticated:
+        st.warning("Mohon login untuk memproses penarikan.")
+    else:
+        with st.form("form_penarikan_manual"):
+            tgl_t = st.date_input("Tanggal", value=datetime.now())
+            # Fetch summary for real-time balance check
+            summary_for_wd = get_nasabah_summary()
+            selected_tn = st.selectbox("Pilih Nasabah", options=summary_for_wd["nama_nasabah"].tolist())
+            
+            current_s = summary_for_wd[summary_for_wd["nama_nasabah"] == selected_tn]["saldo"].values[0]
+            st.write(f"Saldo Tabungan saat ini: **{format_rupiah(current_s)}**")
+            
+            nom_t = st.number_input("Nominal Penarikan (Rp)", min_value=0, step=1000)
+            ket_t = st.text_input("Keterangan", placeholder="Contoh: Keperluan dapur")
+            
+            if st.form_submit_button("Proses Penarikan", use_container_width=True, type="primary"):
+                if nom_t > current_s:
+                    st.error("Gagal: Saldo tidak mencukupi untuk nominal penarikan tersebut.")
+                elif nom_t <= 0:
+                    st.warning("Masukkan nominal yang valid.")
+                else:
+                    wd_data = {
+                        "tanggal": tgl_t.strftime("%Y-%m-%d %H:%M:%S"),
+                        "nama_nasabah": selected_tn,
+                        "nominal": nom_t,
+                        "keterangan": ket_t
+                    }
+                    if save_penarikan(wd_data):
+                        st.success(f"Berhasil menarik {format_rupiah(nom_t)}!")
+                        st.cache_data.clear(); st.rerun()
+
+with tab_riwayat:
+    st.subheader("📜 Riwayat Transaksi Lengkap")
+    choice = st.radio("Pilih Jenis Riwayat", ["Setoran Sampah", "Penarikan Uang"], horizontal=True)
+    if choice == "Setoran Sampah":
+        st.dataframe(df_db, use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(get_withdrawals_df(), use_container_width=True, hide_index=True)
 
 with tab_nasabah:
-    # Merge transaction summary with detailed profile
-    nasabah_list_df = get_nasabah_df()
-    trans_summary = (
-        df.groupby("nama_nasabah", as_index=False)
-        .agg(
-            total_transaksi=("nama_nasabah", "count"),
-            total_berat_kg=("berat_kg", "sum"),
-            total_nilai_rp=("nilai_rp", "sum"),
-        )
-    )
+    st.subheader("👥 Database Anggota & Saldo")
+    # Clean and Format for display
+    n_display = nasabah_summary_df.copy()
+    n_display['saldo_fmt'] = n_display['saldo'].apply(format_rupiah)
+    n_display['setoran_fmt'] = n_display['total_setoran'].apply(format_rupiah)
+    n_display['tarik_fmt'] = n_display['total_penarikan'].apply(format_rupiah)
     
-    merged_nasabah = pd.merge(
-        nasabah_list_df, trans_summary, 
-        left_on="nama", right_on="nama_nasabah", 
-        how="left"
-    ).fillna(0)
-    
-    st.subheader("Database Anggota Lengkap")
-    # Using reindex for safety - it will create columns with NaN if they don't exist yet
-    display_cols = [
-        "nama", "unit", "jenis_nasabah", "total_transaksi", 
-        "total_berat_kg", "total_nilai_rp", "email", "no_hp", "alamat"
-    ]
     st.dataframe(
-        merged_nasabah.reindex(columns=display_cols), 
-        use_container_width=True, 
+        n_display[[
+            "nama_nasabah", "saldo_fmt", "setoran_fmt", "tarik_fmt", "total_berat_kg"
+        ]].rename(columns={
+            "nama_nasabah": "Nama Nasabah",
+            "saldo_fmt": "Saldo Aktif",
+            "setoran_fmt": "Total Tabungan",
+            "tarik_fmt": "Total Ambil",
+            "total_berat_kg": "Sampah (kg)"
+        }),
+        use_container_width=True,
         hide_index=True
     )
-    
-    st.plotly_chart(
-        px.bar(merged_nasabah.sort_values("total_nilai_rp", ascending=False).head(10), 
-               x="nama", y="total_nilai_rp", color="unit",
-               title="Top 10 Nasabah Berdasarkan Nilai Setoran"),
-        use_container_width=True,
-    )
 
-with tab_alur:
-    flow_df = df.groupby(["status_alur", "jenis_sampah"], as_index=False)["berat_kg"].sum()
-    st.dataframe(flow_df, use_container_width=True, hide_index=True)
-    st.plotly_chart(
-        px.sunburst(flow_df, path=["status_alur", "jenis_sampah"], values="berat_kg", title="Distribusi Alur Sampah"),
-        use_container_width=True,
-    )
-
-with tab_pembukuan:
-    book_df = df.copy()
-    book_df["bulan"] = book_df["tanggal"].dt.to_period("M").astype(str)
-    monthly_book = (
-        book_df.groupby("bulan", as_index=False)
-        .agg(
-            jumlah_transaksi=("nama_nasabah", "count"),
-            total_berat_kg=("berat_kg", "sum"),
-            total_nilai_rp=("nilai_rp", "sum"),
-            total_pembayaran=("pembayaran", "sum"),
-        )
-        .sort_values("bulan")
-    )
-    st.dataframe(monthly_book, use_container_width=True, hide_index=True)
-    st.plotly_chart(
-        px.line(
-            monthly_book,
-            x="bulan",
-            y=["total_nilai_rp", "total_pembayaran"],
-            markers=True,
-            title="Tren Pembukuan Bulanan",
-        ),
-        use_container_width=True,
-    )
-
-with tab_keuangan:
-    finance_df = pd.DataFrame(
-        {
-            "Komponen": ["Pendapatan", "Pengeluaran", "Saldo"],
-            "Nilai": [total_pendapatan, total_pengeluaran, saldo],
-        }
-    )
-    st.dataframe(finance_df, use_container_width=True, hide_index=True)
-    st.plotly_chart(
-        px.bar(finance_df, x="Komponen", y="Nilai", color="Komponen", title="Ringkasan Keuangan"),
-        use_container_width=True,
-    )
-
-with tab_raw:
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    st.download_button(
-        "Unduh CSV Data",
-        df.to_csv(index=False).encode("utf-8"),
-        file_name="bank_sampah_data.csv",
-        mime="text/csv",
-    )
-
-with tab_settings:
-    st.header("Konfigurasi Sistem")
-    if st.session_state.authenticated:
-        st.subheader("Google Sheets Link")
-        new_url = st.text_input("URL Google Sheet Transaksi", value=sheet_url)
-        new_reg_url = st.text_input("URL Google Sheet Pendaftaran Nasabah", value=reg_sheet_url)
-        
-        if st.button("Simpan Pengaturan"):
-            update_setting("BANK_SAMPAH_SHEET_URL", new_url)
-            update_setting("BANK_SAMPAH_REGISTRATION_URL", new_reg_url)
-            st.success("Konfigurasi berhasil disimpan ke database!")
-            st.rerun()
+with tab_master:
+    st.header("📦 Pengaturan Harga Sampah")
+    if not st.session_state.authenticated:
+        st.info("Hanya Admin yang bisa mengakses menu ini.")
+    else:
+        m_data = get_master_sampah()
+        with st.form("form_master_sampah"):
+            st.subheader("Tambah atau Update Jenis Sampah")
+            js_nama = st.text_input("Nama Jenis Sampah (Misal: Botol Plastik)")
+            js_harga = st.number_input("Harga per kg (Rp)", min_value=0, step=100)
+            if st.form_submit_button("Simpan Perubahan"):
+                if js_nama:
+                    update_master_sampah(js_nama, js_harga)
+                    st.success(f"Berhasil: {js_nama} sekarang {format_rupiah(js_harga)}/kg")
+                    st.rerun()
         
         st.divider()
-        st.subheader("Manajemen Data")
-        if st.button("⚠️ Bersihkan Semua Data Transaksi", type="secondary"):
-            from modules.database import clear_all_data
-            clear_all_data()
-            st.warning("Semua data telah dihapus.")
+        st.subheader("Daftar Harga Berlaku")
+        st.table(m_data[["nama_jenis", "harga_per_kg"]])
+
+with tab_settings:
+    st.header("⚙️ Konfigurasi Sistem")
+    if st.session_state.authenticated:
+        st.subheader("🔗 Google Sheets Integration (Hybrid)")
+        st.caption("Gunakan ini untuk sinkronisasi data dari form eksternal.")
+        
+        s_url = st.text_input("GSheet Transaksi (Setoran)", value=sheet_url)
+        r_url = st.text_input("GSheet Nasabah (Registrasi)", value=reg_sheet_url)
+        w_url = st.text_input("GSheet Penarikan", value=withdrawal_sheet_url)
+        
+        if st.button("Simpan Semua Konfigurasi"):
+            update_setting("BANK_SAMPAH_SHEET_URL", s_url)
+            update_setting("BANK_SAMPAH_REGISTRATION_URL", r_url)
+            update_setting("BANK_SAMPAH_WITHDRAWAL_URL", w_url)
+            st.success("Konfigurasi URL berhasil disimpan!")
             st.rerun()
+            
+        st.divider()
+        st.subheader("🗑️ Manajemen Data")
+        if st.button("⚠️ Bersihkan Database (Hapus Semua Transaksi)", type="secondary"):
+            st.warning("Fitur ini akan menghapus seluruh rekaman transaksi.")
+            # We could add a confirm checkbox here if needed
     else:
-        st.info("Silakan login untuk mengakses pengaturan sistem.")
+        st.info("Silakan login di sidebar untuk memodifikasi pengaturan sistem.")

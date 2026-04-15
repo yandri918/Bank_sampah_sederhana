@@ -37,19 +37,46 @@ def init_db():
         "gsheet_id": "TEXT UNIQUE"
     }
     
-    # Special check for the renamed column
     if "nama_nasabah" not in existing_trans_cols:
-        if "nasabah_name" in existing_trans_cols:
-            # We could rename, but for safety in SQLite versions, let's just add the new one
-            cursor.execute("ALTER TABLE transaksi ADD COLUMN nama_nasabah TEXT")
-            # Copy data if old column exists
-            cursor.execute("UPDATE transaksi SET nama_nasabah = nasabah_name")
-        else:
-            cursor.execute("ALTER TABLE transaksi ADD COLUMN nama_nasabah TEXT")
+        cursor.execute("ALTER TABLE transaksi ADD COLUMN nama_nasabah TEXT")
     
     for col, col_type in required_trans_cols.items():
         if col not in existing_trans_cols:
             cursor.execute(f"ALTER TABLE transaksi ADD COLUMN {col} {col_type}")
+
+    # Table for Penarikan (New)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS penarikan (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tanggal TIMESTAMP,
+            nama_nasabah TEXT,
+            nominal REAL,
+            keterangan TEXT,
+            source TEXT DEFAULT 'Manual',
+            gsheet_id TEXT UNIQUE
+        );
+    """)
+
+    # Table for Master Sampah (New)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS master_sampah (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nama_jenis TEXT UNIQUE,
+            harga_per_kg REAL
+        );
+    """)
+
+    # Seed Master Sampah if empty
+    cursor.execute("SELECT COUNT(*) FROM master_sampah")
+    if cursor.fetchone()[0] == 0:
+        initial_data = [
+            ("Kardus", 2000),
+            ("Plastik", 1500),
+            ("Logam/Besi", 4000),
+            ("Kertas/HVS", 1000),
+            ("Botol Kaca", 500)
+        ]
+        cursor.executemany("INSERT INTO master_sampah (nama_jenis, harga_per_kg) VALUES (?, ?)", initial_data)
 
     # Table for Nasabah
     cursor.execute("""
@@ -59,41 +86,24 @@ def init_db():
         );
     """)
 
-    # Auto-Migration: Add missing columns to nasabah table
+    # Auto-Migration for Nasabah
     cursor.execute("PRAGMA table_info(nasabah)")
     existing_cols = [row[1] for row in cursor.fetchall()]
-    
     required_cols = {
-        "email": "TEXT",
-        "alamat": "TEXT",
-        "no_hp": "TEXT",
-        "unit": "TEXT",
-        "jenis_nasabah": "TEXT",
-        "status_aturan": "TEXT",
-        "total_poin": "REAL DEFAULT 0",
-        "last_transaction": "TIMESTAMP"
+        "email": "TEXT", "alamat": "TEXT", "no_hp": "TEXT", "unit": "TEXT",
+        "jenis_nasabah": "TEXT", "status_aturan": "TEXT",
+        "total_poin": "REAL DEFAULT 0", "last_transaction": "TIMESTAMP"
     }
-    
     for col, col_type in required_cols.items():
         if col not in existing_cols:
             cursor.execute(f"ALTER TABLE nasabah ADD COLUMN {col} {col_type}")
 
-    # Table for Settings
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-    """)
-    
-    # Table for Users
+    # Table for Settings & Users
+    cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            full_name TEXT,
-            role TEXT DEFAULT 'staff'
+            username TEXT UNIQUE, password TEXT, full_name TEXT, role TEXT DEFAULT 'staff'
         );
     """)
     
@@ -256,16 +266,90 @@ def get_transactions_df():
 
 def get_nasabah_summary():
     conn = get_connection()
+    # Updated summary to include actual saldo calculation
+    # Balance = SUM(Setoran) - SUM(Penarikan)
+    
     query = """
         SELECT 
-            nama_nasabah, 
-            COUNT(*) as total_transaksi,
-            SUM(berat_kg) as total_berat_kg,
-            SUM(nilai_rp) as total_nilai_rp
-        FROM transaksi 
-        GROUP BY nama_nasabah
-        ORDER BY total_nilai_rp DESC
+            n.nama as nama_nasabah, 
+            COUNT(t.id) as total_transaksi,
+            IFNULL(SUM(t.berat_kg), 0) as total_berat_kg,
+            IFNULL(SUM(t.nilai_rp), 0) as total_setoran,
+            IFNULL(p.total_penarikan, 0) as total_penarikan,
+            (IFNULL(SUM(t.nilai_rp), 0) - IFNULL(p.total_penarikan, 0)) as saldo
+        FROM nasabah n
+        LEFT JOIN transaksi t ON n.nama = t.nama_nasabah
+        LEFT JOIN (
+            SELECT nama_nasabah, SUM(nominal) as total_penarikan
+            FROM penarikan
+            GROUP BY nama_nasabah
+        ) p ON n.nama = p.nama_nasabah
+        GROUP BY n.nama
+        ORDER BY saldo DESC
     """
     df = pd.read_sql_query(query, conn)
     conn.close()
     return df
+
+# --- New Helper Functions for Hybrid System ---
+
+def get_master_sampah():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM master_sampah ORDER BY nama_jenis ASC", conn)
+    conn.close()
+    return df
+
+def update_master_sampah(nama, harga):
+    conn = get_connection()
+    conn.execute("INSERT OR REPLACE INTO master_sampah (nama_jenis, harga_per_kg) VALUES (?, ?)", (nama, harga))
+    conn.commit()
+    conn.close()
+
+def delete_master_sampah(id):
+    conn = get_connection()
+    conn.execute("DELETE FROM master_sampah WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+
+def save_penarikan(data: dict):
+    conn = get_connection()
+    try:
+        conn.execute("""
+            INSERT INTO penarikan (tanggal, nama_nasabah, nominal, keterangan, source)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data['tanggal'], data['nama_nasabah'], data['nominal'], data['keterangan'], 'Manual'))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def get_withdrawals_df():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM penarikan ORDER BY tanggal DESC", conn)
+    conn.close()
+    return df
+
+def upsert_withdrawal_data(df: pd.DataFrame):
+    """Import normalized Withdrawal dataframe from GSheet."""
+    conn = get_connection()
+    success_count = 0
+    duplicate_count = 0
+    for _, row in df.iterrows():
+        timestamp_str = row['tanggal'].strftime('%Y%m%d%H%M%S') if pd.notnull(row['tanggal']) else "0"
+        gsheet_id = f"WD_{timestamp_str}_{row['nama_nasabah']}_{row['nominal']}"
+        try:
+            conn.execute("""
+                INSERT INTO penarikan (tanggal, nama_nasabah, nominal, keterangan, source, gsheet_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                row['tanggal'].strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(row['tanggal']) else None,
+                row['nama_nasabah'], row['nominal'], row.get('keterangan', '-'), 'GSheet', gsheet_id
+            ))
+            success_count += 1
+        except sqlite3.IntegrityError:
+            duplicate_count += 1
+    conn.commit()
+    conn.close()
+    return success_count, duplicate_count
