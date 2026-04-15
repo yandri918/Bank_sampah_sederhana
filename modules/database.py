@@ -17,18 +17,39 @@ def init_db():
         CREATE TABLE IF NOT EXISTS transaksi (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tanggal TIMESTAMP,
-            nama_nasabah TEXT,
-            rt_rw TEXT,
-            jenis_sampah TEXT,
-            berat_kg REAL,
-            harga_per_kg REAL,
-            nilai_rp REAL,
-            pembayaran REAL,
-            status_alur TEXT DEFAULT 'Selesai',
-            source TEXT DEFAULT 'GSheet',
-            gsheet_id TEXT UNIQUE
+            nama_nasabah TEXT
         );
     """)
+
+    # Auto-Migration for transaksi: Add missing columns
+    cursor.execute("PRAGMA table_info(transaksi)")
+    existing_trans_cols = [row[1] for row in cursor.fetchall()]
+    
+    required_trans_cols = {
+        "rt_rw": "TEXT",
+        "jenis_sampah": "TEXT",
+        "berat_kg": "REAL",
+        "harga_per_kg": "REAL",
+        "nilai_rp": "REAL",
+        "pembayaran": "REAL",
+        "status_alur": "TEXT DEFAULT 'Selesai'",
+        "source": "TEXT DEFAULT 'GSheet'",
+        "gsheet_id": "TEXT UNIQUE"
+    }
+    
+    # Special check for the renamed column
+    if "nama_nasabah" not in existing_trans_cols:
+        if "nasabah_name" in existing_trans_cols:
+            # We could rename, but for safety in SQLite versions, let's just add the new one
+            cursor.execute("ALTER TABLE transaksi ADD COLUMN nama_nasabah TEXT")
+            # Copy data if old column exists
+            cursor.execute("UPDATE transaksi SET nama_nasabah = nasabah_name")
+        else:
+            cursor.execute("ALTER TABLE transaksi ADD COLUMN nama_nasabah TEXT")
+    
+    for col, col_type in required_trans_cols.items():
+        if col not in existing_trans_cols:
+            cursor.execute(f"ALTER TABLE transaksi ADD COLUMN {col} {col_type}")
 
     # Table for Nasabah
     cursor.execute("""
