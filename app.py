@@ -325,21 +325,12 @@ if not df_db.empty:
     df = df_db[(df_db['tanggal'].dt.date >= start_date) & (df_db['tanggal'].dt.date <= end_date)].copy()
 else:
     df = pd.DataFrame()
-    st.warning("👋 Selamat Datang! Data masih kosong.")
-    st.info("Silakan login di sidebar sebagai Admin, lalu buka tab **⚙️ Pengaturan** untuk melakukan **Sinkronisasi GSheet** pertama kali.")
-    st.stop()
-
-if df.empty:
-    st.info("Tidak ada data untuk rentang waktu ini atau database masih kosong.")
-    if not st.session_state.authenticated:
-        st.write("Silakan Login & buka tab **⚙️ Pengaturan** untuk sinkronisasi.")
-    st.stop()
 
 # --- Calculations & Metrics ---
 # We calculate this early so dashboard metrics are accurate
 nasabah_summary_df = get_nasabah_summary()
-total_setoran_all = nasabah_summary_df['total_setoran'].sum()
-total_penarikan_all = nasabah_summary_df['total_penarikan'].sum()
+total_setoran_all = nasabah_summary_df['total_setoran'].sum() if not nasabah_summary_df.empty else 0
+total_penarikan_all = nasabah_summary_df['total_penarikan'].sum() if not nasabah_summary_df.empty else 0
 saldo_kas_total = total_setoran_all - total_penarikan_all
 
 # --- Tabs Implementation ---
@@ -357,9 +348,13 @@ tab_dash, tab_setor, tab_tarik, tab_riwayat, tab_nasabah, tab_master, tab_settin
 with tab_dash:
     st.header("Ringkasan Operasional")
     
+    if df_db.empty:
+        st.warning("👋 Selamat Datang! Data masih kosong.")
+        st.info("Silakan login di sidebar sebagai Admin, lalu buka tab **⚙️ Pengaturan** untuk melakukan **Sinkronisasi GSheet** pertama kali.")
+    
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     m_col1.metric("Total Anggota", f"{len(nasabah_summary_df)}")
-    m_col2.metric("Total Sampah (kg)", f"{nasabah_summary_df['total_berat_kg'].sum():,.1f}")
+    m_col2.metric("Total Sampah (kg)", f"{nasabah_summary_df['total_berat_kg'].sum():,.1f}" if not nasabah_summary_df.empty else "0.0")
     m_col3.metric("Total Tabungan Kas", format_rupiah(total_setoran_all))
     m_col4.metric("Saldo Kas Tersedia", format_rupiah(saldo_kas_total))
 
