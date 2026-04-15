@@ -292,7 +292,7 @@ if not df_db.empty:
     df_db = df_db.loc[:, ~df_db.columns.duplicated()]
     
     # Fail-safe: Ensure all required columns exist even if DB schema hasn't migrated yet
-    required_cols = ["tanggal", "nama_nasabah", "berat_kg", "nilai_rp", "pembayaran", "status_alur", "jenis_sampah"]
+    required_cols = ["tanggal", "nama_nasabah", "jenis_nasabah", "berat_kg", "nilai_rp", "pembayaran", "status_alur", "jenis_sampah"]
     df_db = df_db.reindex(columns=required_cols)
     
     # Fill numeric NaNs with 0 and strings with empty
