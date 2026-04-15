@@ -240,9 +240,17 @@ def get_transactions_df():
     conn = get_connection()
     # Ensure column is named nama_nasabah for streamlit dashboard compatibility
     df = pd.read_sql_query("SELECT * FROM transaksi ORDER BY tanggal DESC", conn)
-    # If the database existed before the schema update, manually rename for df if needed
+    
+    # Handle duplicate/old columns gracefully
     if 'nasabah_name' in df.columns:
-        df = df.rename(columns={'nasabah_name': 'nama_nasabah'})
+        if 'nama_nasabah' not in df.columns:
+            df = df.rename(columns={'nasabah_name': 'nama_nasabah'})
+        else:
+            # If both exist, drop the old one to avoid duplicates
+            df = df.drop(columns=['nasabah_name'])
+            
+    # Final safety: remove any other potential duplicate column names
+    df = df.loc[:, ~df.columns.duplicated()]
     conn.close()
     return df
 

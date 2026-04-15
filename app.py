@@ -270,6 +270,9 @@ with st.sidebar:
 # --- Data Loading ---
 df_db = get_transactions_df()
 if not df_db.empty:
+    # Deduplicate columns before any processing to avoid reindex errors
+    df_db = df_db.loc[:, ~df_db.columns.duplicated()]
+    
     # Fail-safe: Ensure all required columns exist even if DB schema hasn't migrated yet
     required_cols = ["tanggal", "nama_nasabah", "berat_kg", "nilai_rp", "pembayaran", "status_alur", "jenis_sampah"]
     df_db = df_db.reindex(columns=required_cols)
