@@ -270,6 +270,14 @@ with st.sidebar:
 # --- Data Loading ---
 df_db = get_transactions_df()
 if not df_db.empty:
+    # Fail-safe: Ensure all required columns exist even if DB schema hasn't migrated yet
+    required_cols = ["tanggal", "nama_nasabah", "berat_kg", "nilai_rp", "pembayaran", "status_alur", "jenis_sampah"]
+    df_db = df_db.reindex(columns=required_cols)
+    
+    # Fill numeric NaNs with 0 and strings with empty
+    for col in ["berat_kg", "nilai_rp", "pembayaran"]:
+        df_db[col] = pd.to_numeric(df_db[col], errors='coerce').fillna(0.0)
+    
     df_db['tanggal'] = pd.to_datetime(df_db['tanggal'])
     
     # Filter by Date
