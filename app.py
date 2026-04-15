@@ -210,11 +210,13 @@ st.caption("Integrasi Google Form ke visualisasi nasabah, alur sampah, pembukuan
 # --- Authentication & Sidebar ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+if 'user' not in st.session_state:
+    st.session_state.user = {"bsi_id": 1} # Default/Demo ID
 
 with st.sidebar:
     st.header("🔑 Akses Sistem")
     if not st.session_state.authenticated:
-        auth_tab1, auth_tab2 = st.tabs(["Masuk", "Daftar"])
+        auth_tab1, auth_tab2 = st.tabs(["Masuk", "Registrasi BSI"])
         
         with auth_tab1:
             with st.form("login_form"):
@@ -226,57 +228,54 @@ with st.sidebar:
                     if res:
                         st.session_state.authenticated = True
                         st.session_state.user = res
-                        st.rerun()
-                    elif user == "admin" and pw == "admin":
-                        create_user("admin", "admin", "Administrator", "admin")
-                        st.session_state.authenticated = True
+                        st.success(f"Selamat Datang, {res['full_name']}")
                         st.rerun()
                     else:
                         st.error("Username atau password salah")
         
         with auth_tab2:
+            st.info("Pendaftaran ini untuk pengelola Bank Sampah baru.")
             with st.form("register_form"):
-                new_user = st.text_input("Username Baru")
-                new_pw = st.text_input("Password Baru", type="password")
-                full_name = st.text_input("Nama Lengkap")
+                new_user = st.text_input("Username Admin")
+                new_pw = st.text_input("Password", type="password")
+                full_name = st.text_input("Nama Lengkap Ketua")
+                bsi_name = st.text_input("Nama Bank Sampah")
                 reg_submitted = st.form_submit_button("Daftar Sekarang", use_container_width=True)
                 if reg_submitted:
-                    if new_user and new_pw and full_name:
-                        if create_user(new_user, new_pw, full_name):
-                            st.success("Akun berhasil dibuat! Silakan masuk.")
+                    if new_user and new_pw and full_name and bsi_name:
+                        success, msg = register_bsi(new_user, new_pw, full_name, bsi_name)
+                        if success:
+                            st.success(msg)
                         else:
-                            st.error("Username mungkin sudah digunakan.")
+                            st.error(msg)
                     else:
                         st.warning("Mohon isi semua field.")
     else:
-        st.success(f"Halo, {st.session_state.user[3] if len(st.session_state.user) > 3 else 'User'}")
-        if st.button("Keluar", use_container_width=True):
+        st.success(f"🏡 {st.session_state.user['full_name']}")
+        st.caption(f"Role: {st.session_state.user['role'].upper()}")
+        if st.button("🚪 Keluar", use_container_width=True):
             st.session_state.authenticated = False
+            st.session_state.user = {"bsi_id": 1}
             st.rerun()
 
     st.divider()
     st.header("⚙️ Konfigurasi")
+    
+    # Per-Account Settings
+    current_bsi_id = st.session_state.user['bsi_id']
+    
+    provided_url = "https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0"
+    db_url = get_setting("BANK_SAMPAH_SHEET_URL", current_bsi_id)
+    reg_url = get_setting("BANK_SAMPAH_REGISTRATION_URL", current_bsi_id, "")
+    wd_url = get_setting("BANK_SAMPAH_WITHDRAWAL_URL", current_bsi_id, "")
+    
+    sheet_url = db_url if db_url else provided_url
+    
     st.link_button(
-        "Buka Google Form",
-        "https://docs.google.com/forms/d/e/1FAIpQLSdXSuFX_RaEspHEZ7HLsdQ4cGHYJUO4IUQrE8qk1DexHJ9-HA/viewform",
+        "Buka Google Form Anda",
+        get_setting("GFORM_SETORAN_URL", current_bsi_id, "https://docs.google.com/forms"),
         use_container_width=True,
     )
-    
-    # Load URL from DB or Secrets as fallback
-    # We use the URL you provided as the ultimate fallback
-    provided_url = "https://docs.google.com/spreadsheets/d/1wng2B3hZ3Y1TeAeLNHhYVQJXGG4yo3vjdsfrx8VIY6Q/edit#gid=0"
-    db_url = get_setting("BANK_SAMPAH_SHEET_URL")
-    reg_url = get_setting("BANK_SAMPAH_REGISTRATION_URL", "")
-    wd_url = get_setting("BANK_SAMPAH_WITHDRAWAL_URL", "")
-    
-    if not db_url or "sheet_id" in db_url:
-        default_url = st.secrets.get("BANK_SAMPAH_SHEET_URL", provided_url)
-    else:
-        default_url = db_url
-    
-    sheet_url = get_setting("BANK_SAMPAH_SHEET_URL", provided_url) # Still kept in code for legacy but hidden
-    reg_sheet_url = st.text_input("Link GSheet Pendaftaran Nasabah", value=reg_url)
-    withdrawal_sheet_url = get_setting("BANK_SAMPAH_WITHDRAWAL_URL", "")
     
     if st.session_state.authenticated:
         st.divider()
@@ -286,13 +285,13 @@ with st.sidebar:
             with st.spinner("Sinkronisasi anggota..."):
                 try:
                     raw = _load_gsheet_csv(_build_sheet_csv_url(reg_sheet_url))
-                    added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
+                    added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw), current_bsi_id)
                     st.sidebar.success(f"Anggota: +{added}")
                     st.cache_data.clear(); st.rerun()
                 except Exception as e: st.sidebar.error(f"Error: {e}")
 
 # --- Data Loading ---
-df_db = get_transactions_df()
+df_db = get_transactions_df(current_bsi_id)
 if not df_db.empty:
     # Deduplicate columns before any processing to avoid reindex errors
     df_db = df_db.loc[:, ~df_db.columns.duplicated()]
@@ -334,7 +333,7 @@ else:
 
 # --- Calculations & Metrics ---
 # We calculate this early so dashboard metrics are accurate
-nasabah_summary_df = get_nasabah_summary()
+nasabah_summary_df = get_nasabah_summary(current_bsi_id)
 total_setoran_all = nasabah_summary_df['total_setoran'].sum() if not nasabah_summary_df.empty else 0
 total_penarikan_all = nasabah_summary_df['total_penarikan'].sum() if not nasabah_summary_df.empty else 0
 saldo_kas_total = total_setoran_all - total_penarikan_all
@@ -355,10 +354,10 @@ with tab_dash:
     st.header("📊 Dashboard Strategis Bank Sampah")
     
     # 0. Load Targets & BSU Data
-    target_n = int(get_setting("TARGET_NASABAH", 100))
-    target_r = int(get_setting("TARGET_RUPIAH", 10000000))
-    target_k = int(get_setting("TARGET_SAMPAH", 1000))
-    bsu_data = get_bsu_summary()
+    target_n = int(get_setting("TARGET_NASABAH", current_bsi_id, 100))
+    target_r = int(get_setting("TARGET_RUPIAH", current_bsi_id, 10000000))
+    target_k = int(get_setting("TARGET_SAMPAH", current_bsi_id, 1000))
+    bsu_data = get_bsu_summary(current_bsi_id)
     
     if df_db.empty:
         st.warning("👋 Selamat Datang! Data masih kosong.")
@@ -461,7 +460,7 @@ with tab_dash:
             
     with d_col2:
         st.write("**10 Penarikan Terakhir**")
-        wd_history = get_withdrawals_df()
+        wd_history = get_withdrawals_df(current_bsi_id)
         if not wd_history.empty:
             dash_tarik = wd_history.head(10).copy()
             dash_tarik['nominal_fmt'] = dash_tarik['nominal'].apply(format_rupiah)
@@ -492,7 +491,7 @@ with tab_report:
                         "total_berat": nasabah_summary_df['total_berat_kg'].sum() if not nasabah_summary_df.empty else 0,
                         "total_setoran": total_setoran_all,
                         "saldo": saldo_kas_total,
-                        "waste_stats": get_waste_stats_by_type(),
+                        "waste_stats": get_waste_stats_by_type(current_bsi_id),
                         "activities": act,
                         "constraints": cons,
                         "plans": plan
@@ -551,9 +550,11 @@ with tab_ops:
             
             sub_tab_qr = st.tabs(["Setoran", "Penarikan"])
             with sub_tab_qr[0]:
-                st.image(generate_qr_code(setor_form_url), caption="GForm Setoran", use_container_width=True)
+                setor_url = get_setting("GFORM_SETORAN_URL", current_bsi_id, "https://docs.google.com/forms")
+                st.image(generate_qr_code(setor_url), caption="QR Setoran", use_container_width=True)
             with sub_tab_qr[1]:
-                st.image(generate_qr_code(wd_form_url), caption="GForm Penarikan", use_container_width=True)
+                tarik_url = get_setting("GFORM_PENARIKAN_URL", current_bsi_id, "https://docs.google.com/forms")
+                st.image(generate_qr_code(tarik_url), caption="QR Penarikan", use_container_width=True)
 
         with o_col2:
             mode = st.radio("Pilih Mode Input Manual", ["➕ Setoran Sampah", "💸 Penarikan Saldo"], horizontal=True)
@@ -565,11 +566,11 @@ with tab_ops:
                     s_col1, s_col2 = st.columns(2)
                     with s_col1:
                         tgl_s = st.date_input("Tanggal", value=datetime.now())
-                        n_df = get_nasabah_df()
+                        n_df = get_nasabah_df(current_bsi_id)
                         selected_n = st.selectbox("Nasabah", options=sorted(n_df["nama"].tolist()) if not n_df.empty else ["-"])
                         jenis_s = st.text_input("Kategori", value=n_df[n_df["nama"] == selected_n]["jenis_nasabah"].values[0] if not n_df.empty and selected_n in n_df["nama"].values else "-")
                     with s_col2:
-                        m_df = get_master_sampah()
+                        m_df = get_master_sampah(current_bsi_id)
                         selected_s = st.selectbox("Jenis Sampah", options=m_df["nama_jenis"].tolist() if not m_df.empty else ["-"])
                         berat_s = st.number_input("Berat (kg)", min_value=0.1, step=0.1)
                         if not m_df.empty and selected_s in m_df["nama_jenis"].values:
@@ -581,14 +582,14 @@ with tab_ops:
                     
                     if st.form_submit_button("💾 SIMPAN SETORAN", use_container_width=True, type="primary"):
                         new_data = {"tanggal": tgl_s.strftime("%Y-%m-%d %H:%M:%S"), "nama_nasabah": selected_n, "jenis_nasabah": jenis_s, "jenis_sampah": selected_s, "berat_kg": berat_s, "harga_per_kg": price_s, "nilai_rp": total_val, "source": "Manual"}
-                        if save_transaction(new_data):
+                        if save_transaction(new_data, current_bsi_id):
                             st.success("Setoran tersimpan!"); st.cache_data.clear(); st.rerun()
             
             else:
                 st.subheader("Catat Penarikan Baru (Advanced)")
                 with st.form("form_p_adv"):
                     tgl_p = st.date_input("Tanggal", value=datetime.now())
-                    summary_wd = get_nasabah_summary()
+                    summary_wd = get_nasabah_summary(current_bsi_id)
                     selected_n_p = st.selectbox("Pilih Nasabah", options=summary_wd["nama_nasabah"].tolist() if not summary_wd.empty else ["-"])
                     
                     if not summary_wd.empty and selected_n_p in summary_wd["nama_nasabah"].values:
@@ -611,7 +612,7 @@ with tab_ops:
                         elif nom_p <= 0:
                             st.warning("Masukkan nominal.")
                         else:
-                            n_full = get_nasabah_df()
+                            n_full = get_nasabah_df(current_bsi_id)
                             unit_p = n_full[n_full["nama"] == selected_n_p]["unit"].values[0] if not n_full.empty else "-"
                             
                             wd_data = {
@@ -623,7 +624,7 @@ with tab_ops:
                                 "unit": unit_p,
                                 "keterangan": ket_p
                             }
-                            if save_penarikan(wd_data):
+                            if save_penarikan(wd_data, current_bsi_id):
                                 st.session_state.last_receipt = generate_withdrawal_receipt(wd_data)
                                 st.session_state.last_receipt_name = selected_n_p
                                 st.cache_data.clear()
@@ -651,7 +652,7 @@ with tab_riwayat:
     if choice == "Setoran Sampah":
         st.dataframe(df_db[["tanggal", "nama_nasabah", "jenis_nasabah", "jenis_sampah", "berat_kg", "nilai_rp"]], use_container_width=True, hide_index=True)
     else:
-        st.dataframe(get_withdrawals_df(), use_container_width=True, hide_index=True)
+        st.dataframe(get_withdrawals_df(current_bsi_id), use_container_width=True, hide_index=True)
 
 with tab_nasabah:
     st.subheader("👥 Database Anggota & Saldo")
@@ -684,7 +685,7 @@ with tab_nasabah:
         
         if target_nasabah:
             # Get full data for card
-            n_df_full = get_nasabah_df()
+            n_df_full = get_nasabah_df(current_bsi_id)
             member_match = n_df_full[n_df_full["nama"] == target_nasabah]
             
             if not member_match.empty:
@@ -708,14 +709,14 @@ with tab_master:
     if not st.session_state.authenticated:
         st.info("Hanya Admin yang bisa mengakses menu ini.")
     else:
-        m_data = get_master_sampah()
+        m_data = get_master_sampah(current_bsi_id)
         with st.form("form_master_sampah"):
             st.subheader("Tambah atau Update Jenis Sampah")
             js_nama = st.text_input("Nama Jenis Sampah (Misal: Botol Plastik)")
             js_harga = st.number_input("Harga per kg (Rp)", min_value=0, step=100)
             if st.form_submit_button("Simpan Perubahan"):
                 if js_nama:
-                    update_master_sampah(js_nama, js_harga)
+                    update_master_sampah(js_nama, js_harga, current_bsi_id)
                     st.success(f"Berhasil: {js_nama} sekarang {format_rupiah(js_harga)}/kg")
                     st.rerun()
         
@@ -732,19 +733,19 @@ with tab_settings:
         
         t1, t2, t3 = st.columns(3)
         with t1:
-            curr_t_n = int(get_setting("TARGET_NASABAH", 100))
+            curr_t_n = int(get_setting("TARGET_NASABAH", current_bsi_id, 100))
             new_t_n = st.number_input("Target Nasabah", value=curr_t_n, step=10)
         with t2:
-            curr_t_r = int(get_setting("TARGET_RUPIAH", 10000000))
+            curr_t_r = int(get_setting("TARGET_RUPIAH", current_bsi_id, 10000000))
             new_t_r = st.number_input("Target Setoran (Rp)", value=curr_t_r, step=100000)
         with t3:
-            curr_t_k = int(get_setting("TARGET_SAMPAH", 1000))
+            curr_t_k = int(get_setting("TARGET_SAMPAH", current_bsi_id, 1000))
             new_t_k = st.number_input("Target Sampah (Kg)", value=curr_t_k, step=100)
             
         if st.button("💾 Simpan Target Tahunan"):
-            update_setting("TARGET_NASABAH", str(new_t_n))
-            update_setting("TARGET_RUPIAH", str(new_t_r))
-            update_setting("TARGET_SAMPAH", str(new_t_k))
+            update_setting("TARGET_NASABAH", str(new_t_n), current_bsi_id)
+            update_setting("TARGET_RUPIAH", str(new_t_r), current_bsi_id)
+            update_setting("TARGET_SAMPAH", str(new_t_k), current_bsi_id)
             st.success("Target diperbarui!")
             st.rerun()
 
@@ -759,9 +760,9 @@ with tab_settings:
             with st.spinner("Sinkronisasi setoran..."):
                 try:
                     raw = _load_gsheet_csv(_build_sheet_csv_url(s_url))
-                    added, dups = upsert_gsheet_data(_normalize_dataframe(raw))
+                    added, dups = upsert_gsheet_data(_normalize_dataframe(raw), current_bsi_id)
                     st.success(f"Berhasil Sinkron: {added} data ditambahkan/diperbarui.")
-                    update_setting("BANK_SAMPAH_SHEET_URL", s_url)
+                    update_setting("BANK_SAMPAH_SHEET_URL", s_url, current_bsi_id)
                     st.cache_data.clear(); st.rerun()
                 except Exception as e: st.error(f"Error Sinkron Setoran: {e}")
         
@@ -774,9 +775,9 @@ with tab_settings:
             with st.spinner("Sinkronisasi anggota..."):
                 try:
                     raw = _load_gsheet_csv(_build_sheet_csv_url(r_url_input))
-                    added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw))
+                    added, updated = upsert_nasabah_data(_normalize_nasabah_dataframe(raw), current_bsi_id)
                     st.success(f"Berhasil Sinkron: {added} anggota baru.")
-                    update_setting("BANK_SAMPAH_REGISTRATION_URL", r_url_input)
+                    update_setting("BANK_SAMPAH_REGISTRATION_URL", r_url_input, current_bsi_id)
                     st.rerun()
                 except Exception as e: st.error(f"Error Sinkron Anggota: {e}")
         
@@ -789,12 +790,30 @@ with tab_settings:
             with st.spinner("Sinkronisasi penarikan..."):
                 try:
                     raw = _load_gsheet_csv(_build_sheet_csv_url(w_url_input))
-                    added, dups = upsert_withdrawal_data(_normalize_withdrawal_dataframe(raw))
+                    added, dups = upsert_withdrawal_data(_normalize_withdrawal_dataframe(raw), current_bsi_id)
                     st.success(f"Berhasil Sinkron: {added} data penarikan.")
-                    update_setting("BANK_SAMPAH_WITHDRAWAL_URL", w_url_input)
+                    update_setting("BANK_SAMPAH_WITHDRAWAL_URL", w_url_input, current_bsi_id)
                     st.cache_data.clear(); st.rerun()
                 except Exception as e: st.error(f"Error Sinkron Penarikan: {e}")
             
+        st.divider()
+        st.subheader("🔗 Konfigurasi Link GForm (Manajemen QR)")
+        st.caption("Masukkan link Google Form Anda di sini agar QR Code di Tab Operasional berubah otomatis.")
+        
+        c_qr1, c_qr2 = st.columns(2)
+        with c_qr1:
+            curr_setoran_url = get_setting("GFORM_SETORAN_URL", current_bsi_id, "https://docs.google.com/forms")
+            new_setoran_url = st.text_input("Link GForm Setoran", value=curr_setoran_url)
+        with c_qr2:
+            curr_penarikan_url = get_setting("GFORM_PENARIKAN_URL", current_bsi_id, "https://docs.google.com/forms")
+            new_penarikan_url = st.text_input("Link GForm Penarikan", value=curr_penarikan_url)
+            
+        if st.button("💾 Simpan Link GForm"):
+            update_setting("GFORM_SETORAN_URL", new_setoran_url, current_bsi_id)
+            update_setting("GFORM_PENARIKAN_URL", new_penarikan_url, current_bsi_id)
+            st.success("Link GForm diperbarui!")
+            st.rerun()
+
         st.divider()
         st.subheader("🗑️ Manajemen Data (Reset)")
         st.warning("⚠️ Perhatian: Menghapus data akan mengosongkan Riwayat Setoran dan Penarikan secara permanen.")
@@ -804,8 +823,7 @@ with tab_settings:
             confirm_clear = st.checkbox("Saya yakin ingin menghapus data")
         
         if st.button("🚀 BERSIHKAN SEMUA DATA TRANSAKSI", type="primary", disabled=not confirm_clear):
-            from modules.database import clear_all_data
-            if clear_all_data():
+            if clear_all_data(current_bsi_id):
                 st.success("Database berhasil dibersihkan! Silakan lakukan Sinkronisasi ulang.")
                 st.cache_data.clear(); st.rerun()
     else:
