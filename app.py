@@ -36,12 +36,12 @@ EXPECTED_FIELDS: Dict[str, Iterable[str]] = {
 }
 
 EXPECTED_FIELDS_REGISTRATION: Dict[str, Iterable[str]] = {
-    "nama": ("nama", "name", "nama lengkap", "nasabah", "nama nasabah"),
+    "nama": ("nama lengkap", "nama nasabah", "nama", "name"),
     "email": ("email", "e mail", "alamat email"),
     "alamat": ("alamat lengkap", "alamat", "address", "domisili"),
     "no_hp": ("no hp", "no wa", "whatsapp", "phone", "nomor hp", "nomor wa", "telepon"),
     "unit": ("bank sampah unit", "unit", "pilih bank sampah unit", "bsu"),
-    "jenis_nasabah": ("jenis nasabah", "kategori nasabah", "tipe nasabah", "jenis"),
+    "jenis_nasabah": ("jenis nasabah", "kategori nasabah", "tipe nasabah"),
     "status_aturan": ("bersedia mengikuti aturan", "aturan", "syarat", "persetujuan"),
 }
 
